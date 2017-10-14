@@ -18,4 +18,6 @@ executable spiteful
   main-is:             Main.hs
   default-language:    Haskell2010
   build-depends:       base >= 4.7 && < 5
+                       , data-default >= 0.7
                        , reddit >= 0.2
+                       , text >= 1.2
