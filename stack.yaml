@@ -3,11 +3,14 @@ resolver: lts-9.8
 packages:
 - .
 extra-deps:
+# `reddit` package & its deps
 - aeson-0.11.3.0
 - api-builder-0.12.0.0
 - primitive-0.6.1.0
 - reddit-0.2.1.0
 - vector-0.11.0.0
+# other
+- optparse-applicative-0.14.0.0
 
 # Override default flag values for local packages and extra-deps
 flags: {}

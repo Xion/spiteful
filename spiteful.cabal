@@ -22,8 +22,13 @@ executable spiteful
                        , either >= 4.4
                        , http-client >= 0.5
                        , http-client-tls
-                       , reddit >= 0.2
+                       , optparse-applicative >= 0.14
                        , pipes
+                       , reddit >= 0.2
                        , text >= 1.2
                        , text-format >= 0.3.1
                        , text-icu >= 0.7
+  GHC-Options:         -fwarn-tabs
+                       -fwarn-incomplete-patterns
+                       -fwarn-unused-imports
+                       -fwarn-missing-signatures
