@@ -4,6 +4,8 @@
 
 module Main where
 
+import Control.Applicative ((<$>))
+import Control.Concurrent (threadDelay)
 import Control.Monad
 import Control.Monad.IO.Class
 import Data.Default
@@ -14,7 +16,12 @@ import Data.Text (Text)
 import Data.Version (showVersion)
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
+import Data.Text.Format
+import Data.Text.Format.Params
+import Data.Text.ICU.Char
+import Data.Text.ICU.Normalize
 import qualified Data.Text.IO as Text
+import Data.Text.Lazy (toStrict)
 import GHC.Generics (Generic)
 import System.IO
 
@@ -58,9 +65,11 @@ main = do
 
   TLS.setGlobalManager =<< TLS.newTlsManager
 
-  -- TODO: read options from file
-  result <- runEffect $
-    fetchNewPosts def >-> P.map formatPost >-> P.print
+  -- TODO: read options from the command line
+  result <- runEffect $ fetchPosts def New
+                      >-> P.filter isDontUpvotePost
+                      >-> P.map formatPost
+                      >-> P.print
   whenLeft result $ \err -> Text.hPutStrLn stderr (tshow err)
 
 formatPost :: Post -> Text
@@ -70,30 +79,62 @@ formatPost post = "[" <> tshow (score post) <> "] " <> title post
   subreddit' post = let R name = subreddit post in "/r/" <> name
 
 
+-- Fetching posts
+
 type PostProducer m = Producer Post m (Either (APIError RedditError) ())
 
-fetchNewPosts :: MonadIO m => Options -> PostProducer m
-fetchNewPosts options = do
+fetchPosts :: MonadIO m => Options -> ListingType -> PostProducer m
+fetchPosts options listingType = do
   -- Reuse HTTP connection manager between Reddit calls.
   let redditOpts = toRedditOptions options
   httpManager <- liftIO $ HTTP.newManager TLS.tlsManagerSettings
   let redditOpts' = redditOpts { connectionManager = Just httpManager}
 
-  doFetch httpManager redditOpts' New
+  doFetch httpManager redditOpts' listingType Nothing
   where
   doFetch :: MonadIO m
-          => Manager -> RedditOptions -> ListingType -> PostProducer m
-  doFetch manager rOpts lt = do
+          => HTTP.Manager -> RedditOptions -> ListingType -> Maybe PostID
+          -> PostProducer m
+  doFetch manager rOpts lt after = do
     result <- liftIO $ runRedditWith rOpts $ do
-      -- TODO: fetch more pages of posts
-      Listing _ _ posts <- getPosts' def lt (optSubreddit options)
-      return posts
+      let postOpts = def { pagination = After <$> after, limit = Just 50 }
+      Listing _ after' posts <- getPosts' postOpts lt (optSubreddit options)
+      logAt Debug "Received {} posts from the {} feed (after = {})"
+                  (length posts, tshow lt, tshow after)
+      return (posts, after')
     case result of
       Left err -> return $ Left err
-      Right posts -> do
+      Right (posts, after') -> do
         mapM_ yield posts
-        doFetch manager rOpts lt
+        if not . null $ posts then do
+          liftIO $ threadDelay 1000000 -- 1 sec, as per API docs recommendation
+          doFetch manager rOpts lt after'
+        else return $ Right ()
 
+isDontUpvotePost :: Post -> Bool
+isDontUpvotePost post = any (`Text.isInfixOf` title') phrases
+  where
+  title' = toPlain $ title post
+  phrases = map toPlain [ "don't upvote", "no upvote", "not upvote" ]
+  toPlain = Text.toCaseFold . stripAccents -- TODO: collapse whitespace
+
+
+-- Simple logging
+
+data LogLevel = Debug | Info | Warn | Error
+                deriving (Eq, Show)
+
+logAt :: (MonadIO m, Params ps) => LogLevel -> Format -> ps -> m ()
+logAt level fmt params =
+  let message = toStrict $ format fmt params
+  in liftIO $ Text.hPutStrLn stderr $
+    "[" <> Text.toUpper (tshow level) <> "] " <> message
+
+
+-- Utilities
 
 tshow :: Show a => a -> Text
 tshow = Text.pack . show
+
+stripAccents :: Text -> Text
+stripAccents = Text.filter (not . property Diacritic) . normalize NFD
