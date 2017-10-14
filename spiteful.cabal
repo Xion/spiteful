@@ -19,5 +19,9 @@ executable spiteful
   default-language:    Haskell2010
   build-depends:       base >= 4.7 && < 5
                        , data-default >= 0.7
+                       , either >= 4.4
+                       , http-client >= 0.5
+                       , http-client-tls
                        , reddit >= 0.2
+                       , pipes
                        , text >= 1.2
