@@ -59,9 +59,26 @@ main = do
 
   result <- runEffect $ fetchPosts opts New
                       >-> P.filter isDontUpvotePost
-                      >-> P.map formatPost
-                      >-> P.print
-  whenLeft result $ \err -> Text.hPutStrLn stderr (tshow err)
+                      >-> P.mapM_ (upvote opts)
+  whenLeft result $ \err ->
+    logAt Error $ "Error when fetching posts: " <> tshow err
+
+upvote :: MonadIO m => Options -> Post -> m ()
+upvote opts Post{..} = do
+  let PostID pid = postID
+      R subr = subreddit
+  case optCredentials opts of
+    Nothing -> do
+      logFmt Warn
+        "Cannot upvote post #{} (\"{}\" in /r/{}) due to lack of credentials"
+        (pid, title, subr)
+    _ -> do
+      logFmt Info "Upvoting post #{} (\"{}\" in /r/{}) [{}] -> [{}]"
+        (pid, title, subr, score, score + 1)
+      result <- liftIO $ runRedditWith (toRedditOptions opts) $
+        upvotePost postID
+      whenLeft result $ \err ->
+        logFmt Warn "Failed to upvote post #{}: {}" (pid, tshow err)
 
 formatPost :: Post -> Text
 formatPost post = "[" <> tshow (score post) <> "] " <> title post
@@ -143,7 +160,7 @@ fetchPosts opts@Options{..} listingType = do
   httpManager <- liftIO $ HTTP.newManager TLS.tlsManagerSettings
   let redditOpts' = redditOpts { connectionManager = Just httpManager}
 
-  logAt Debug $ "Fetching posts from " <>
+  logAt Debug $ "Fetching " <> tshow listingType <> " posts from " <>
     maybe "the entire Reddit" (("subreddit: " <>) . tshow) optSubreddit
   doFetch httpManager redditOpts' Nothing
   where
@@ -162,13 +179,15 @@ fetchPosts opts@Options{..} listingType = do
         mapM_ yield posts
         if null posts then return $ Right ()
         else do
+          -- TODO: sleep for much longer if after' is Nothing,
+          -- as it probably means we are doing a new poll then
           liftIO $ threadDelay 1000000 -- 1 sec, as per API docs recommendation
           doFetch manager rOpts after'
 
 isDontUpvotePost :: Post -> Bool
-isDontUpvotePost post = any (`Text.isInfixOf` title') phrases
+isDontUpvotePost Post{..} = any (`Text.isInfixOf` title') phrases
   where
-  title' = toPlain $ title post
+  title' = toPlain title
   phrases = map toPlain [ "don't upvote", "no upvote", "not upvote" ]
   toPlain = Text.toCaseFold . stripAccents -- TODO: collapse whitespace
 

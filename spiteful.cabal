@@ -32,3 +32,4 @@ executable spiteful
                        -fwarn-incomplete-patterns
                        -fwarn-unused-imports
                        -fwarn-missing-signatures
+                       -O2
