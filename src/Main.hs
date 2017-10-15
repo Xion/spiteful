@@ -76,6 +76,7 @@ data Options = Options
   { optCredentials :: Maybe (Text, Text)
   , optSubreddit :: Maybe SubredditName
   , optUserAgent :: Maybe Text
+  , optBatchSize :: Maybe Int
   } deriving (Generic, Show)
 
 instance Default Options
@@ -112,6 +113,12 @@ options = do
     <> help "Custom value for the User-Agent header sent with all requests"
     <> hidden
     )
+  batchSize <- optional $ option auto
+    ( long "batch" <> short 'b'
+    <> metavar "SIZE"
+    <> help "How many Reddit posts to fetch in a single request"
+    <> hidden
+    )
   subreddit <- optional $ argument str
     ( metavar "SUBREDDIT"
     <> help "Subreddit to limit the bot to. By default, watches whole /new"
@@ -119,44 +126,44 @@ options = do
   return def { optCredentials = liftA2 (,) username password
              , optSubreddit = R . stripSlashR <$> subreddit
              , optUserAgent = userAgent
+             , optBatchSize = batchSize
              }
   where
   stripSlashR s = fromMaybe s $ Text.stripPrefix "/r/" s
 
 
--- Fetching posts
+-- Reddit stuff
 
 type PostProducer m = Producer Post m (Either (APIError RedditError) ())
 
 fetchPosts :: MonadIO m => Options -> ListingType -> PostProducer m
-fetchPosts options listingType = do
+fetchPosts opts@Options{..} listingType = do
   -- Reuse HTTP connection manager between Reddit calls.
-  let redditOpts = toRedditOptions options
+  let redditOpts = toRedditOptions opts
   httpManager <- liftIO $ HTTP.newManager TLS.tlsManagerSettings
   let redditOpts' = redditOpts { connectionManager = Just httpManager}
 
   logAt Debug $ "Fetching posts from " <>
-    maybe "the entire Reddit" (("subreddit: " <>) . tshow) (optSubreddit options)
-  doFetch httpManager redditOpts' listingType Nothing
+    maybe "the entire Reddit" (("subreddit: " <>) . tshow) optSubreddit
+  doFetch httpManager redditOpts' Nothing
   where
   doFetch :: MonadIO m
-          => HTTP.Manager -> RedditOptions -> ListingType -> Maybe PostID
-          -> PostProducer m
-  doFetch manager rOpts lt after = do
+          => HTTP.Manager -> RedditOptions -> Maybe PostID -> PostProducer m
+  doFetch manager rOpts after = do
     result <- liftIO $ runRedditWith rOpts $ do
-      let postOpts = def { pagination = After <$> after, limit = Just 50 }
-      Listing _ after' posts <- getPosts' postOpts lt (optSubreddit options)
+      let postOpts = def { pagination = After <$> after, limit = optBatchSize }
+      Listing _ after' posts <- getPosts' postOpts listingType optSubreddit
       logFmt Debug "Received {} posts from the {} feed (after = {})"
-                   (length posts, tshow lt, tshow after)
+                   (length posts, tshow listingType, tshow after)
       return (posts, after')
     case result of
       Left err -> return $ Left err
       Right (posts, after') -> do
         mapM_ yield posts
-        if not . null $ posts then do
+        if null posts then return $ Right ()
+        else do
           liftIO $ threadDelay 1000000 -- 1 sec, as per API docs recommendation
-          doFetch manager rOpts lt after'
-        else return $ Right ()
+          doFetch manager rOpts after'
 
 isDontUpvotePost :: Post -> Bool
 isDontUpvotePost post = any (`Text.isInfixOf` title') phrases
