@@ -36,8 +36,11 @@ botVersion :: Text
 botVersion = Text.pack $ showVersion version
 
 
+-- | Options as parsed from the command line.
+-- Fields that have Nothing should be defaulted on upon use.
 data Options = Options
-  { optCredentials :: Maybe (Text, Text)
+  { optVerbosity :: Int  -- ^ How many times the -v flag was passed
+  , optCredentials :: Maybe (Text, Text)
   , optSubreddit :: Maybe SubredditName
   , optListing :: Maybe ListingType
   , optUserAgent :: Maybe Text
@@ -67,6 +70,7 @@ commandLine = info (options <**> helper)
 
 options :: Parser Options
 options = do
+  verbosity' <- verbosity
   username <- optional $ option str
       ( long "user" <> short 'u' <> metavar "USERNAME"
       <> help "Reddit username to use for the bot"
@@ -96,7 +100,8 @@ options = do
       ( metavar "SUBREDDIT"
       <> help "Subreddit to limit the bot to. By default, it watches the entire Reddit"
       )
-  return def { optCredentials = liftA2 (,) username password
+  return def { optVerbosity = verbosity'
+             , optCredentials = liftA2 (,) username password
              , optSubreddit = R . stripSlashR <$> subreddit
              , optListing = listingType
              , optUserAgent = userAgent
@@ -106,6 +111,17 @@ options = do
   listing :: ReadM ListingType
   listing =
       maybeReader $ readMay . Text.unpack . capitalize . Text.strip . Text.pack
+
+  -- TODO: make passing too many --v/--q a parse error
+  verbosity :: Parser Int
+  verbosity = fromMaybe 0 <$> optional (verbose <|> quiet)
+    where
+    verbose = length <$> many (flag' ()
+        (long "verbose" <> short 'v'
+        <> help "Increase the verbosity of logging output"))
+    quiet = length <$> many (flag' ()
+        (long "quiet" <> short 'q'
+        <> help "Decrease the verbosity of logging output"))
 
   listings = map (Text.toLower . tshow) [New, Hot, Rising, Controversial]
 

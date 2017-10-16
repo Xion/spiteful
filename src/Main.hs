@@ -29,7 +29,8 @@ import Spiteful.Util
 
 main :: IO ()
 main = do
-  opts <- execParser commandLine
+  opts@Options{..} <- execParser commandLine
+  setLogLevel $ toEnum $ fromEnum defaultLogLevel - optVerbosity
 
   logAt Info $ "spiteful-bot v" <> botVersion
   forM_ [stdout, stdin] $ \handle -> do
