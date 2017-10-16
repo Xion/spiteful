@@ -1,6 +1,13 @@
 # spiteful
 
-TBD
+Mischievous Reddit bot
+
+## What it does?
+
+Currently, it:
+
+* looks for new posts that have "don't upvote" (or similar) in the title
+  and _specifically upvotes them_
 
 ## Development notes
 
