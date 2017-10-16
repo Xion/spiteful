@@ -9,8 +9,10 @@ import Control.Applicative ((<$>), liftA2)
 import Control.Concurrent (threadDelay)
 import Control.Monad
 import Control.Monad.IO.Class
+import qualified Data.Char as Char
 import Data.Default
 import Data.Either.Combinators (whenLeft)
+import Data.List (foldl')
 import Data.Maybe (fromMaybe)
 import Data.Monoid ((<>))
 import Data.Text (Text)
@@ -32,6 +34,7 @@ import qualified Pipes.Prelude as P
 import Reddit hiding (Options)
 import Reddit.Types.Listing
 import Reddit.Types.Post
+import Safe (readMay)
 import System.IO
 
 import Paths_spiteful (version)
@@ -57,7 +60,7 @@ main = do
 
   TLS.setGlobalManager =<< TLS.newTlsManager
 
-  result <- runEffect $ fetchPosts opts New
+  result <- runEffect $ fetchPosts opts
                       >-> P.filter isDontUpvotePost
                       >-> P.mapM_ (upvote opts)
   whenLeft result $ \err ->
@@ -80,18 +83,13 @@ upvote opts Post{..} = do
       whenLeft result $ \err ->
         logFmt Warn "Failed to upvote post #{}: {}" (pid, tshow err)
 
-formatPost :: Post -> Text
-formatPost post = "[" <> tshow (score post) <> "] " <> title post
-                  <> " (" <> subreddit' post <> ")"
-  where
-  subreddit' post = let R name = subreddit post in "/r/" <> name
-
 
 -- Program options & command line
 
 data Options = Options
   { optCredentials :: Maybe (Text, Text)
   , optSubreddit :: Maybe SubredditName
+  , optListing :: Maybe ListingType
   , optUserAgent :: Maybe Text
   , optBatchSize :: Maybe Int
   } deriving (Generic, Show)
@@ -124,6 +122,11 @@ options = do
     ( long "password" <> short 'p' <> metavar "PASSWORD"
     <> help "Password to the bot's Reddit account"
     )
+  listingType <- optional $ option listing
+    ( long "watch" <> short 'w' <> metavar "WHAT"
+    <> help (Text.unpack $ "Which Reddit listing to watch: "
+                           <> Text.intercalate ", " listings)
+    )
   userAgent <- optional $ option str
     ( long "user-agent" <> short 'A'
     <> metavar "USER-AGENT"
@@ -138,23 +141,34 @@ options = do
     )
   subreddit <- optional $ argument str
     ( metavar "SUBREDDIT"
-    <> help "Subreddit to limit the bot to. By default, watches whole /new"
+    <> help "Subreddit to limit the bot to. By default, it watches the entire Reddit"
     )
   return def { optCredentials = liftA2 (,) username password
              , optSubreddit = R . stripSlashR <$> subreddit
+             , optListing = listingType
              , optUserAgent = userAgent
              , optBatchSize = batchSize
              }
   where
-  stripSlashR s = fromMaybe s $ Text.stripPrefix "/r/" s
+  listing :: ReadM ListingType
+  listing =
+    maybeReader $ readMay . Text.unpack . capitalize . Text.strip . Text.pack
+
+  listings = map (Text.toLower . tshow) [New, Hot, Rising, Controversial]
+
+  stripSlashR s =
+    foldl' (.) id (map stripPrefix prefixes) $ Text.toLower s
+    where
+    stripPrefix p s = fromMaybe s $ Text.stripPrefix p s
+    prefixes = [ "/r/", "r/", "/" ]
 
 
 -- Reddit stuff
 
 type PostProducer m = Producer Post m (Either (APIError RedditError) ())
 
-fetchPosts :: MonadIO m => Options -> ListingType -> PostProducer m
-fetchPosts opts@Options{..} listingType = do
+fetchPosts :: MonadIO m => Options -> PostProducer m
+fetchPosts opts@Options{..} = do
   -- Reuse HTTP connection manager between Reddit calls.
   let redditOpts = toRedditOptions opts
   httpManager <- liftIO $ HTTP.newManager TLS.tlsManagerSettings
@@ -164,6 +178,8 @@ fetchPosts opts@Options{..} listingType = do
     maybe "the entire Reddit" (("subreddit: " <>) . tshow) optSubreddit
   doFetch httpManager redditOpts' Nothing
   where
+  listingType = fromMaybe New optListing
+
   doFetch :: MonadIO m
           => HTTP.Manager -> RedditOptions -> Maybe PostID -> PostProducer m
   doFetch manager rOpts after = do
@@ -179,22 +195,47 @@ fetchPosts opts@Options{..} listingType = do
         mapM_ yield posts
         if null posts then return $ Right ()
         else do
-          -- TODO: sleep for much longer if after' is Nothing,
-          -- as it probably means we are doing a new poll then
-          liftIO $ threadDelay 1000000 -- 1 sec, as per API docs recommendation
+          -- Sleep for 1 second, as per Reddit API recommendation,
+          -- or for longer if we exhausted the listing
+          -- (as it likely means starting from the beginning of it,
+          --  i.e. completely new posts)
+          delaySecs <- case after' of
+            Just _ -> do
+              logAt Trace "Sleeping for a second before continuing with fetch"
+              return 1
+            Nothing -> do
+              logFmt Debug
+                "Exhausted the {} listing, starting over in {} seconds"
+                (tshow listingType, restartDelaySecs)
+              return restartDelaySecs
+          liftIO $ threadDelay (delaySecs * 1000000)
           doFetch manager rOpts after'
+    where
+    -- | How long to wait when we've exhausted the listing before
+    -- retrying the fetch anew from the beginning.
+    restartDelaySecs = case listingType of
+      New -> 5
+      Hot -> 60
+      Rising -> 30
+      Controversial -> 60
+      Top -> 5 * 60  -- /top shouldn't really change a lot
 
 isDontUpvotePost :: Post -> Bool
 isDontUpvotePost Post{..} = any (`Text.isInfixOf` title') phrases
   where
   title' = toPlain title
-  phrases = map toPlain [ "don't upvote", "no upvote", "not upvote" ]
-  toPlain = Text.toCaseFold . stripAccents -- TODO: collapse whitespace
+  phrases = map toPlain [ "don't upvote"
+                        , "dont upvote"
+                        , "no upvote"
+                        , "not upvote"
+                        ]
+  toPlain = Text.toCaseFold . stripAccents . collapseWhitespace
+  collapseWhitespace = Text.unwords . Text.words
 
 
 -- Simple logging
 
-data LogLevel = Debug | Info | Warn | Error
+data LogLevel = Trace | Debug | Info | Warn | Error
                 deriving (Eq, Show)
 
 logFmt :: (MonadIO m, Params ps) => LogLevel -> Format -> ps -> m ()
@@ -209,6 +250,11 @@ logAt level msg = liftIO $ Text.hPutStrLn stderr $
 
 tshow :: Show a => a -> Text
 tshow = Text.pack . show
+
+capitalize :: Text -> Text
+capitalize "" = ""
+capitalize s | Text.length s == 1 = Text.toUpper s
+capitalize s = Char.toUpper (Text.head s) `Text.cons` Text.tail s
 
 stripAccents :: Text -> Text
 stripAccents = Text.filter (not . property Diacritic) . normalize NFD

@@ -25,6 +25,7 @@ executable spiteful
                        , optparse-applicative >= 0.14
                        , pipes
                        , reddit >= 0.2
+                       , safe >= 0.3
                        , text >= 1.2
                        , text-format >= 0.3.1
                        , text-icu >= 0.7
