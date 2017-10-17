@@ -23,7 +23,6 @@ executable spiteful
   build-depends:       base >= 4.7 && < 5
                        , data-default >= 0.7
                        , either >= 4.4
-                       , http-client >= 0.5
                        , http-client-tls
                        , optparse-applicative >= 0.14
                        , pipes

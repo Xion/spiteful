@@ -51,6 +51,4 @@ getLogLevel :: MonadIO m => m LogLevel
 getLogLevel = liftIO $ readMVar currentLogLevel
 
 setLogLevel :: MonadIO m => LogLevel -> m ()
-setLogLevel l = do
-  l' <- liftIO $ evaluate l
-  void $ liftIO $ swapMVar currentLogLevel l'
+setLogLevel l = liftIO $ void $ swapMVar currentLogLevel =<< evaluate l
