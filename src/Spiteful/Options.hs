@@ -73,11 +73,13 @@ options = do
   verbosity' <- verbosity
   username <- optional $ option str
       ( long "user" <> short 'u' <> metavar "USERNAME"
-      <> help "Reddit username to use for the bot"
+      <> help ("Reddit username to use for the bot. "
+               <> "Pass `-` to read it from stdin.")
       )
   password <- optional $ option str
       ( long "password" <> short 'p' <> metavar "PASSWORD"
-      <> help "Password to the bot's Reddit account"
+      <> help ("Password to the bot's Reddit account. "
+               <> "Pass `-` to read it from stdin.")
       )
   listingType <- optional $ option listing
       ( long "watch" <> short 'w' <> metavar "WHAT"

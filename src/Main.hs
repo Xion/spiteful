@@ -28,7 +28,7 @@ import Spiteful.Util
 
 main :: IO ()
 main = do
-  opts@Options{..} <- execParser commandLine
+  opts@Options{..} <- parseArgs
   setLogLevel $ toEnum $ fromEnum defaultLogLevel - optVerbosity
 
   logAt Info $ "spiteful-bot v" <> botVersion
@@ -46,6 +46,29 @@ main = do
                       >-> P.mapM_ (upvote opts)
   whenLeft result $ \err ->
     logAt Error $ "Error when fetching posts: " <> tshow err
+
+
+parseArgs :: IO Options
+parseArgs = do
+  opts <- execParser commandLine
+
+  -- Handle possible "-" value being passed to --user or --password
+  case optCredentials opts of
+    Just ("-", "-") -> do
+      username <- prompt EchoOn userPrompt
+      password <- prompt EchoOff passPrompt
+      return opts { optCredentials = Just (username, password) }
+    Just (u, "-") -> do
+      password <- prompt EchoOff passPrompt
+      return opts { optCredentials = Just (u, password) }
+    Just ("-", p) -> do
+      username <- prompt EchoOn userPrompt
+      return opts { optCredentials = Just (username, p) }
+    _ -> return opts
+  where
+  userPrompt = "Reddit username"
+  passPrompt = "Reddit password"
+
 
 isDontUpvotePost :: Post -> Bool
 isDontUpvotePost Post{..} = any (`Text.isInfixOf` title') phrases
