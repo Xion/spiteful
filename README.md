@@ -2,6 +2,9 @@
 
 Mischievous Reddit bot
 
+[![Build Status](https://img.shields.io/travis/Xion/spiteful.svg)](https://travis-ci.org/Xion/spiteful)
+[![License](https://img.shields.io/github/license/Xion/spiteful.svg)](https://github.com/Xion/spiteful/blob/master/LICENSE)
+
 ## What it does?
 
 Currently, it:
