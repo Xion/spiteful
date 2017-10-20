@@ -84,7 +84,7 @@ options = do
   listingType <- optional $ option listing
       ( long "watch" <> short 'w' <> metavar "WHAT"
       <> help (Text.unpack $ "Which Reddit listing to watch: "
-                              <> Text.intercalate ", " listings)
+                              <> intercalateWithLast " or " ", " listings)
       )
   userAgent <- optional $ option str
       ( long "user-agent" <> short 'A'
@@ -132,3 +132,13 @@ options = do
     where
     stripPrefix p s = fromMaybe s $ Text.stripPrefix p s
     prefixes = [ "/r/", "r/", "/" ]
+
+  intercalateWithLast :: Text -> Text -> [Text] -> Text
+  intercalateWithLast lastSep sep xs = case length xs of
+    0 -> ""
+    1 -> head xs
+    2 -> let x:y:[] = xs in x <> lastSep <> y
+    _ -> let y = last xs
+             x = last (init xs)
+             rest = init . init $ xs
+         in Text.intercalate sep rest <> sep <> x <> lastSep <> y
