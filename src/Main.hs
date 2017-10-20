@@ -4,14 +4,17 @@
 module Main where
 
 import Control.Applicative ((<$>))
-import Control.Concurrent (threadDelay)
+import Control.Concurrent (myThreadId, threadDelay)
+import Control.Concurrent.MVar
+import Control.Exception (throwTo)
 import Control.Monad
 import Control.Monad.IO.Class
 import Data.Default
-import Data.Either.Combinators (whenLeft)
+import Data.Either.Combinators (isRight, whenLeft)
 import Data.Maybe (fromMaybe, isNothing)
 import Data.Monoid ((<>))
 import qualified Data.Text as Text
+import qualified Data.Text.IO as Text
 import qualified Network.HTTP.Client.TLS as TLS
 import Options.Applicative
 import Pipes
@@ -19,7 +22,10 @@ import qualified Pipes.Prelude as P
 import Reddit hiding (Options)
 import Reddit.Types.Listing
 import Reddit.Types.Post
+import System.Exit
 import System.IO
+import System.IO.Unsafe (unsafePerformIO)
+import System.Signal (installHandler, sigINT)
 
 import Spiteful.Options
 import Spiteful.Logging
@@ -28,22 +34,30 @@ import Spiteful.Util
 
 main :: IO ()
 main = do
-  opts@Options{..} <- parseArgs
-  setLogLevel $ toEnum $ fromEnum defaultLogLevel - optVerbosity
-
-  logAt Info $ "spiteful-bot v" <> botVersion
   forM_ [stdout, stdin] $ \handle -> do
     hSetBuffering handle NoBuffering
     hSetEncoding handle utf8
 
-  logAt Debug $ "Command line options: " <> (tshow opts)
+  opts@Options{..} <- parseArgs
+  setLogLevel $ toEnum $ fromEnum defaultLogLevel - optVerbosity
+
+  tid <- myThreadId
+  installHandler sigINT $ \_ -> do
+    -- TODO: some way of printing statistics w/o closing the program
+    printStatistics
+    throwTo tid ExitSuccess
+
+  logAt Info $ "spiteful-bot v" <> botVersion
+  logAt Debug $ "Command line options: " <> tshow opts
 
   TLS.setGlobalManager =<< TLS.newTlsManager
 
-  result <- runEffect $ fetchPosts opts
-                      >-> P.filter isDontUpvotePost
-                      >-> P.filter hasNotBeenVotedOn
-                      >-> P.mapM_ (upvote opts)
+  result <- runEffect $
+    fetchPosts opts >-> countAs postsSeen
+    >-> P.filter isDontUpvotePost >-> countAs dontUpvotePostsSeen
+    >-> P.filter hasNotBeenVotedOn
+    >-> P.mapM (upvote opts) >-> P.filter isRight >-> countAs postsUpvoted
+    >-> P.drain -- drop upvote outcomes but retain a possible fetch error
   whenLeft result $ \err ->
     logAt Error $ "Error when fetching posts: " <> tshow err
 
@@ -86,10 +100,44 @@ hasNotBeenVotedOn :: Post -> Bool
 hasNotBeenVotedOn = isNothing . liked
 
 
+-- Runtime statistics
+
+-- | Pipe that counts all passing elements and stores the total in given MVar.
+countAs :: (MonadIO m, Num n) => MVar n -> Pipe a a m r
+countAs mvar = P.chain $ \_ -> liftIO $ modifyMVar_ mvar (return . (+1))
+
+postsSeen :: MVar Int
+postsSeen = unsafePerformIO $ newMVar 0
+{-# NOINLINE postsSeen #-}
+
+dontUpvotePostsSeen :: MVar Int
+dontUpvotePostsSeen = unsafePerformIO $ newMVar 0
+{-# NOINLINE dontUpvotePostsSeen #-}
+
+postsUpvoted :: MVar Int
+postsUpvoted = unsafePerformIO $ newMVar 0
+{-# NOINLINE postsUpvoted #-}
+
+printStatistics :: IO ()
+printStatistics = do
+  seen <- readMVar postsSeen
+  dontUpvoteSeen <- readMVar dontUpvotePostsSeen
+  upvoted <- readMVar postsUpvoted
+  mapM_ Text.putStrLn [ sep
+                      , "Total posts seen: " <> tshow seen
+                      , "'dont upvote' posts seen: " <> tshow dontUpvoteSeen
+                      , "Posts upvoted: " <> tshow upvoted
+                      , sep
+                      ]
+  where
+  sep = Text.replicate 20 "-"
+
+
 -- Reddit stuff
 -- TODO: extract this to a separate module
 
-type PostProducer m = Producer Post m (Either (APIError RedditError) ())
+type RedditResult = Either (APIError RedditError) ()
+type PostProducer m = Producer Post m RedditResult
 
 -- TODO: remember the IDs of posts already fetched so we can not yield
 -- duplicates and stop/restart from the beginning of the listing if duplicates
@@ -142,7 +190,7 @@ fetchPosts opts@Options{..} = do
       Controversial -> 60
       Top -> 5 * 60  -- /top shouldn't really change a lot
 
-upvote :: MonadIO m => Options -> Post -> m ()
+upvote :: MonadIO m => Options -> Post -> m RedditResult
 upvote opts Post{..} = do
   let PostID pid = postID
       R subr = subreddit
@@ -151,6 +199,7 @@ upvote opts Post{..} = do
       logFmt Warn
         "Cannot upvote post #{} (\"{}\" in /r/{}) due to lack of credentials"
         (pid, title, subr)
+      return $ Left $ APIError CredentialsError
     _ -> do
       logFmt Info "Upvoting post #{} (\"{}\" in /r/{}) [{}] -> [{}]"
         (pid, title, subr, score, score + 1)
@@ -161,6 +210,7 @@ upvote opts Post{..} = do
         Left err -> logFmt Warn "Failed to upvote post #{}: {}" (pid, tshow err)
         Right _ -> logFmt Debug "Successfully upvoted post #{} in /r/{}"
                                 (pid, subr)
+      return result
 
 newRedditOptions :: MonadIO m => Options -> m RedditOptions
 newRedditOptions opts = do
