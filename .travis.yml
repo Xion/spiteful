@@ -13,13 +13,16 @@ before_install:
   - mkdir -p ~/.local/bin
   - export PATH=$HOME/.local/bin:$PATH
   - travis_retry curl -L https://www.stackage.org/stack/linux-x86_64 | tar xz --wildcards --strip-components=1 -C ~/.local/bin '*/stack'
+  - stack --version
   # Configure stack to use the system GHC installation
   - stack config set system-ghc --global true
   - export PATH=/opt/ghc/7.10.2/bin:$PATH
+  - stack ghc -- --version
 
 install:
   - travis_wait stack --no-terminal --skip-ghc-check setup
-  - travis_wait stack --no-terminal --skip-ghc-check test --only-snapshot
+  # Uncomment below when/if we have tests to run
+  # - travis_wait stack --no-terminal --skip-ghc-check test --only-snapshot
 
 script:
   - stack build
