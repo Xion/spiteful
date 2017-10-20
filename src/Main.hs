@@ -9,7 +9,7 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Data.Default
 import Data.Either.Combinators (whenLeft)
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (fromMaybe, isNothing)
 import Data.Monoid ((<>))
 import qualified Data.Text as Text
 import qualified Network.HTTP.Client.TLS as TLS
@@ -83,7 +83,7 @@ isDontUpvotePost Post{..} = any (`Text.isInfixOf` title') phrases
   collapseWhitespace = Text.unwords . Text.words
 
 hasNotBeenVotedOn :: Post -> Bool
-hasNotBeenVotedOn Post{..} = isJust liked
+hasNotBeenVotedOn = isNothing . liked
 
 
 -- Reddit stuff
