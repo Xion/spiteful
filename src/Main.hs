@@ -9,7 +9,7 @@ import Control.Exception (throwTo)
 import Control.Monad
 import Control.Monad.IO.Class
 import Data.Either.Combinators (isRight, whenLeft)
-import Data.Maybe (isNothing)
+import Data.Maybe (isJust, isNothing)
 import Data.Monoid ((<>))
 import qualified Data.Text as Text
 import qualified Data.Text.IO as Text
@@ -17,7 +17,10 @@ import qualified Network.HTTP.Client.TLS as TLS
 import Options.Applicative
 import Pipes
 import qualified Pipes.Prelude as P
+import Reddit.Types.Comment
 import Reddit.Types.Post
+import Reddit.Types.Subreddit (SubredditName(..))
+import Reddit.Types.User (Username(..))
 import System.Exit
 import System.IO
 import System.IO.Unsafe (unsafePerformIO)
@@ -80,7 +83,7 @@ monitorDontUpvotePosts opts = do
   result <- runEffect $
     fetchPosts opts >-> countAs postsSeen
     >-> P.filter isDontUpvotePost >-> countAs dontUpvotePostsSeen
-    >-> P.filter hasNotBeenVotedOn
+    >-> P.filter (not . hasBeenVotedOn)
     >-> P.mapM (upvotePost opts) >-> P.filter isRight >-> countAs postsUpvoted
     >-> P.drain -- drop upvote outcomes but retain a possible fetch error
   whenLeft result $ \err ->
@@ -98,15 +101,9 @@ isDontUpvotePost Post{..} = any (`Text.isInfixOf` title') phrases
   toPlain = Text.toCaseFold . stripAccents . collapseWhitespace
   collapseWhitespace = Text.unwords . Text.words
 
-hasNotBeenVotedOn :: Post -> Bool
-hasNotBeenVotedOn = isNothing . liked
+hasBeenVotedOn :: Post -> Bool
+hasBeenVotedOn = isJust . liked
 
-
--- Runtime statistics
-
--- | Pipe that counts all passing elements and stores the total in given MVar.
-countAs :: (MonadIO m, Num n) => MVar n -> Pipe a a m r
-countAs mvar = P.chain $ \_ -> liftIO $ modifyMVar_ mvar (return . (+1))
 
 postsSeen :: MVar Int
 postsSeen = unsafePerformIO $ newMVar 0
@@ -119,6 +116,68 @@ dontUpvotePostsSeen = unsafePerformIO $ newMVar 0
 postsUpvoted :: MVar Int
 postsUpvoted = unsafePerformIO $ newMVar 0
 {-# NOINLINE postsUpvoted #-}
+
+
+-- Replying "no" to "does anyone else" comments
+
+monitorDAEComments :: Options -> IO ()
+monitorDAEComments opts = do
+  result <- runEffect $
+    fetchNewComments opts >-> countAs commentsSeen
+    >-> P.filter isDAEComment >-> countAs daeCommentsSeen
+    >-> P.filterM ((not <$>) . hasCommentBeenRepliedTo opts)
+    >-> P.mapM (replyToDAEComment opts) >-> P.filter isRight
+                                        >-> countAs commentsRepliedTo
+    >-> P.drain
+  whenLeft result $ \err ->
+    logAt Error $ "Error when fetching comments: " <> tshow err
+
+isDAEComment :: Comment -> Bool
+isDAEComment Comment{..} = False -- TODO
+
+hasCommentBeenRepliedTo :: Options -> Comment -> IO Bool
+hasCommentBeenRepliedTo opts _ | isNothing (optCredentials opts) = return False
+hasCommentBeenRepliedTo opts comment@Comment{..} = do
+  (hasReply, fetchResult) <- any' isOurReply $ fetchCommentReplies opts comment
+  case fetchResult of
+    Left err -> do
+      let CommentID cid = commentID
+          R subr = subreddit
+      logFmt Warn "Failed to obtain all replies to comment #{} in /r/{}: {}"
+        (cid, subr, tshow err)
+      return True -- let's be conservative here
+    Right _ -> return hasReply
+  where
+  -- Like Pipes.Prelude.any' but preserves the pipe's original return value.
+  any' :: Monad m => (a -> Bool) -> Producer a m r -> m (Bool, r)
+  any' pred pipe = P.fold' (||) False id $ pipe >-> P.map pred
+
+  isOurReply Comment{..} = let Username commenter = author
+                               Just (username, _) = optCredentials opts
+                           in commenter == username
+
+replyToDAEComment :: MonadIO m => Options -> Comment -> m (EitherR ())
+replyToDAEComment opts comment = return $ Right () -- TODO
+
+
+commentsSeen :: MVar Int
+commentsSeen = unsafePerformIO $ newMVar 0
+{-# NOINLINE commentsSeen #-}
+
+daeCommentsSeen :: MVar Int
+daeCommentsSeen = unsafePerformIO $ newMVar 0
+{-# NOINLINE daeCommentsSeen #-}
+
+commentsRepliedTo :: MVar Int
+commentsRepliedTo = unsafePerformIO $ newMVar 0
+{-# NOINLINE commentsRepliedTo #-}
+
+
+-- Runtime statistics
+
+-- | Pipe that counts all passing elements and stores the total in given MVar.
+countAs :: (MonadIO m, Num n) => MVar n -> Pipe a a m r
+countAs mvar = P.chain $ \_ -> liftIO $ modifyMVar_ mvar (return . (+1))
 
 printStatistics :: IO ()
 printStatistics = do

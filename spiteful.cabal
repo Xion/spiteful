@@ -30,9 +30,11 @@ executable spiteful
                        , reddit >= 0.2
                        , signal >= 0.1
                        , safe >= 0.3
+                       , split >= 0.2
                        , text >= 1.2
                        , text-format >= 0.3.1
                        , text-icu >= 0.7
+                       , unordered-containers >= 0.2.8
   GHC-Options:         -fwarn-tabs
                        -fwarn-incomplete-patterns
                        -fwarn-unused-imports

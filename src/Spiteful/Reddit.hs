@@ -1,17 +1,21 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
 module Spiteful.Reddit where
 
 import Control.Concurrent (threadDelay)
+import Control.Monad (forM, forM_)
 import Control.Monad.IO.Class
-import Data.Maybe (fromMaybe)
+import qualified Data.HashMap.Strict as HM
+import Data.List.Split (chunksOf)
+import Data.Maybe (fromMaybe, isNothing, mapMaybe)
 import Data.Monoid ((<>))
 import qualified Network.HTTP.Client.TLS as TLS
 import Pipes
 import Reddit hiding (Options, upvotePost)
 import qualified Reddit as R
-import Reddit.Types.Comment (Comment(..), CommentID)
+import Reddit.Types.Comment
 import Reddit.Types.Listing
 import Reddit.Types.Post (Post(..), PostID)
 
@@ -143,6 +147,54 @@ fetchNewComments opts@Options{..} = do
           doFetch rOpts after'
 
   restartDelaySecs = 5
+
+fetchCommentReplies :: MonadIO m => Options -> Comment -> CommentProducer m
+fetchCommentReplies opts@Options{..} Comment{..} = do
+  let Listing _ after commentRefs = replies
+  if null commentRefs && isNothing after then return $ Right ()
+  else do
+    logFmt Trace "Looking up replies to comment #{} from /r/{}" (cid, subr)
+    redditOpts <- newRedditOptions opts
+
+    -- TODO: follow the possible "after" in the Listing below;
+    -- it's not very necessary for the purpose this whole function is used yet
+    let Listing _ _ commentReplies = replies
+    resolveCommentRefs redditOpts commentReplies
+  where
+  CommentID cid = commentID
+  R subr = subreddit
+
+  resolveCommentRefs :: MonadIO m
+                     => RedditOptions -> [CommentReference]
+                     -> CommentProducer m
+  resolveCommentRefs rOpts commentRefs = do
+    -- CommentReference may hide multiple unresolved CommentIDs;
+    -- gather them all in a single list
+    let justSingularRefs = concatMap treeSubComments commentRefs
+        unresolved = [ cid | Reference _ [CommentID cid] <- justSingularRefs ]
+
+    -- Resolve those references, getting a HashMap from IDs to Comments
+    result <- liftIO $ runResumeRedditWith rOpts $ do
+      let chunked = chunksOf singleCommentGetLimit unresolved
+      resolved <- (concat <$>) . forM chunked $ \cids -> do
+        -- TODO: handle the possible (but unlikely) `after` in the response
+        Listing _ _ comments <- getCommentsInfo (map CommentID cids)
+        return comments
+      return $ HM.fromList (zip unresolved resolved)
+
+    -- Use it to translate all CommentReferences to Comments
+    case result of
+      Left (err, _) -> return $ Left err
+      Right refMap -> do
+        let resolveRef = \case
+              Actual c -> Just c
+              Reference _ [CommentID cid] -> HM.lookup cid refMap
+              _ -> Nothing
+        forM_ (mapMaybe resolveRef commentRefs) $
+          yield
+        return $ Right ()
+    where
+    singleCommentGetLimit = 100 -- enforced by Reddit API
 
 upvoteComment :: MonadIO m => Options -> Comment -> m (EitherR ())
 upvoteComment opts Comment{..} = do
