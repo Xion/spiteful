@@ -81,7 +81,7 @@ monitorDontUpvotePosts opts = do
     fetchPosts opts >-> countAs postsSeen
     >-> P.filter isDontUpvotePost >-> countAs dontUpvotePostsSeen
     >-> P.filter hasNotBeenVotedOn
-    >-> P.mapM (upvote opts) >-> P.filter isRight >-> countAs postsUpvoted
+    >-> P.mapM (upvotePost opts) >-> P.filter isRight >-> countAs postsUpvoted
     >-> P.drain -- drop upvote outcomes but retain a possible fetch error
   whenLeft result $ \err ->
     logAt Error $ "Error when fetching posts: " <> tshow err
