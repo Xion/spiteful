@@ -4,6 +4,7 @@
 module Main where
 
 import Control.Concurrent (myThreadId)
+import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Exception (throwTo)
 import Control.Monad
@@ -51,7 +52,11 @@ main = do
   logAt Debug $ "Command line options: " <> tshow opts
 
   TLS.setGlobalManager =<< TLS.newTlsManager
-  monitorDontUpvotePosts opts
+
+  -- TODO: pick what to run based on command line arguments
+  mapConcurrently_ ($ opts) [ monitorDontUpvotePosts
+                            , monitorDAEComments
+                            ]
 
 
 parseArgs :: IO Options
@@ -148,7 +153,7 @@ hasCommentBeenRepliedTo opts comment@Comment{..} = do
       return True -- let's be conservative here
     Right _ -> return hasReply
   where
-  -- Like Pipes.Prelude.any' but preserves the pipe's original return value.
+  -- Like Pipes.Prelude.any but preserves the pipe's original return value.
   any' :: Monad m => (a -> Bool) -> Producer a m r -> m (Bool, r)
   any' pred pipe = P.fold' (||) False id $ pipe >-> P.map pred
 
@@ -157,7 +162,11 @@ hasCommentBeenRepliedTo opts comment@Comment{..} = do
                            in commenter == username
 
 replyToDAEComment :: MonadIO m => Options -> Comment -> m (EitherR ())
-replyToDAEComment opts comment = return $ Right () -- TODO
+replyToDAEComment opts Comment{..} = do
+  let CommentID cid = commentID
+      R subr = subreddit
+  logFmt Info "Would have replied to comment #{} on /r/{}" (cid, subr)
+  return $ Right () -- TODO
 
 
 commentsSeen :: MVar Int
@@ -181,14 +190,22 @@ countAs mvar = P.chain $ \_ -> liftIO $ modifyMVar_ mvar (return . (+1))
 
 printStatistics :: IO ()
 printStatistics = do
-  seen <- readMVar postsSeen
-  dontUpvoteSeen <- readMVar dontUpvotePostsSeen
-  upvoted <- readMVar postsUpvoted
-  mapM_ Text.putStrLn [ sep
-                      , "Total posts seen: " <> tshow seen
-                      , "'dont upvote' posts seen: " <> tshow dontUpvoteSeen
-                      , "Posts upvoted: " <> tshow upvoted
-                      , sep
-                      ]
+  postsSeen' <- readMVar postsSeen
+  dontUpvotePostsSeen' <- readMVar dontUpvotePostsSeen
+  postsUpvoted' <- readMVar postsUpvoted
+  commentsSeen' <- readMVar commentsSeen
+  daeCommentsSeen' <- readMVar daeCommentsSeen
+  commentsRepliedTo' <- readMVar commentsRepliedTo
+  mapM_ Text.putStrLn
+    [ sep
+    , "Total posts seen: " <> tshow postsSeen'
+    , "'dont upvote' posts seen: " <> tshow dontUpvotePostsSeen'
+    , "Posts upvoted: " <> tshow postsUpvoted'
+    , sep
+    , "Total comments seen: " <> tshow commentsSeen'
+    , "DAE comments seen: " <> tshow daeCommentsSeen'
+    , "Comments replied to: " <> tshow commentsRepliedTo'
+    , sep
+    ]
   where
   sep = Text.replicate 20 "-"

@@ -55,7 +55,8 @@ fetchPosts opts@Options{..} = do
       Left (err, _) -> return $ Left err
       Right (posts, after') -> do
         mapM_ yield posts
-        if null posts then return $ Right ()
+        let isEmpty = null posts && isNothing after -- not after'
+        if isEmpty then return $ Right ()
         else do
           -- Sleep for 1 second, as per Reddit API recommendation,
           -- or for longer if we exhausted the listing
@@ -129,7 +130,8 @@ fetchNewComments opts@Options{..} = do
       Left (err, _) -> return $ Left err
       Right (comments, after') -> do
         mapM_ yield comments
-        if null comments then return $ Right ()
+        let isEmpty = null comments && isNothing after -- not after'
+        if isEmpty then return $ Right ()
         else do
           -- Sleep for 1 second, as per Reddit API recommendation,
           -- or for longer if we exhausted the listing
@@ -195,6 +197,7 @@ fetchCommentReplies opts@Options{..} Comment{..} = do
         return $ Right ()
     where
     singleCommentGetLimit = 100 -- enforced by Reddit API
+
 
 upvoteComment :: MonadIO m => Options -> Comment -> m (EitherR ())
 upvoteComment opts Comment{..} = do
