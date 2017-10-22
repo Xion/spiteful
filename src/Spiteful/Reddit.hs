@@ -7,13 +7,14 @@ module Spiteful.Reddit where
 import Control.Concurrent (threadDelay)
 import Control.Monad (forM, forM_)
 import Control.Monad.IO.Class
+import Data.Either.Combinators (mapLeft)
 import qualified Data.HashMap.Strict as HM
 import Data.List.Split (chunksOf)
 import Data.Maybe (fromMaybe, isNothing, mapMaybe)
 import Data.Monoid ((<>))
 import qualified Network.HTTP.Client.TLS as TLS
 import Pipes
-import Reddit hiding (Options, upvotePost)
+import Reddit hiding (Options, runReddit, upvotePost)
 import qualified Reddit as R
 import Reddit.Types.Comment
 import Reddit.Types.Listing
@@ -38,21 +39,20 @@ fetchPosts :: MonadIO m => Options -> PostProducer m
 fetchPosts opts@Options{..} = do
   logAt Debug $ "Fetching " <> tshow listingType <> " posts from " <>
     maybe "the entire Reddit" (("subreddit: " <>) . tshow) optSubreddit
-  redditOpts <- newRedditOptions opts
-  doFetch redditOpts Nothing
+  doFetch opts Nothing
   where
   listingType = fromMaybe New optListing
 
-  doFetch :: MonadIO m => RedditOptions -> Maybe PostID -> PostProducer m
-  doFetch rOpts after = do
-    result <- liftIO $ runResumeRedditWith rOpts $ do
+  doFetch :: MonadIO m => Options -> Maybe PostID -> PostProducer m
+  doFetch opts after = do
+    result <- runReddit opts $ do
       let fOpts = newFetchOptions opts after
       Listing _ after' posts <- getPosts' fOpts listingType optSubreddit
       logFmt Debug "Received {} posts from the {} feed (after = {})"
                     (length posts, tshow listingType, tshow after)
       return (posts, after')
     case result of
-      Left (err, _) -> return $ Left err
+      Left err -> return $ Left err
       Right (posts, after') -> do
         mapM_ yield posts
         let isEmpty = null posts && isNothing after -- not after'
@@ -72,7 +72,7 @@ fetchPosts opts@Options{..} = do
                 (tshow listingType, restartDelaySecs)
               return restartDelaySecs
           liftIO $ threadDelay (delaySecs * 1000000)
-          doFetch rOpts after'
+          doFetch opts after'
     where
     -- | How long to wait when we've exhausted the listing before
     -- retrying the fetch anew from the beginning.
@@ -97,9 +97,7 @@ upvotePost opts Post{..} = do
     _ -> do
       logFmt Info "Upvoting post #{} (\"{}\" in /r/{}) [{}] -> [{}]"
         (pid, title, subr, score, score + 1)
-      redditOpts <- newRedditOptions opts
-      result <- liftIO $ runRedditWith redditOpts $
-        R.upvotePost postID
+      result <- runReddit opts $ R.upvotePost postID
       case result of
         Left err -> logFmt Warn "Failed to upvote post #{}: {}" (pid, tshow err)
         Right _ -> logFmt Debug "Successfully upvoted post #{} in /r/{}"
@@ -115,19 +113,18 @@ fetchNewComments :: MonadIO m => Options -> CommentProducer m
 fetchNewComments opts@Options{..} = do
   logAt Debug $ "Fetching new comments from " <>
     maybe "the entire Reddit" (("subreddit: " <>) . tshow) optSubreddit
-  redditOpts <- newRedditOptions opts
-  doFetch redditOpts Nothing
+  doFetch opts Nothing
   where
-  doFetch :: MonadIO m => RedditOptions -> Maybe CommentID -> CommentProducer m
-  doFetch rOpts after = do
-    result <- liftIO $ runResumeRedditWith rOpts $ do
-      let fOpts = newFetchOptions opts after
-      Listing _ after' comments <- getNewComments' fOpts optSubreddit
+  doFetch :: MonadIO m => Options -> Maybe CommentID -> CommentProducer m
+  doFetch opts after = do
+    result <- runReddit opts $ do
+      let fetchOpts = newFetchOptions opts after
+      Listing _ after' comments <- getNewComments' fetchOpts optSubreddit
       logFmt Debug "Received {} new comments (after = {})"
-                    (length comments, tshow after)
+                   (length comments, tshow after)
       return (comments, after')
     case result of
-      Left (err, _) -> return $ Left err
+      Left err -> return $ Left err
       Right (comments, after') -> do
         mapM_ yield comments
         let isEmpty = null comments && isNothing after -- not after'
@@ -146,37 +143,36 @@ fetchNewComments opts@Options{..} = do
                             <> tshow restartDelaySecs <> " seconds"
               return restartDelaySecs
           liftIO $ threadDelay (delaySecs * 1000000)
-          doFetch rOpts after'
+          doFetch opts after'
 
   restartDelaySecs = 5
 
 fetchCommentReplies :: MonadIO m => Options -> Comment -> CommentProducer m
-fetchCommentReplies opts@Options{..} Comment{..} = do
+fetchCommentReplies opts Comment{..} = do
   let Listing _ after commentRefs = replies
   if null commentRefs && isNothing after then return $ Right ()
   else do
     logFmt Trace "Looking up replies to comment #{} from /r/{}" (cid, subr)
-    redditOpts <- newRedditOptions opts
 
     -- TODO: follow the possible "after" in the Listing below;
     -- it's not very necessary for the purpose this whole function is used yet
     let Listing _ _ commentReplies = replies
-    resolveCommentRefs redditOpts commentReplies
+    resolveCommentRefs opts commentReplies
   where
   CommentID cid = commentID
   R subr = subreddit
 
   resolveCommentRefs :: MonadIO m
-                     => RedditOptions -> [CommentReference]
+                     => Options -> [CommentReference]
                      -> CommentProducer m
-  resolveCommentRefs rOpts commentRefs = do
+  resolveCommentRefs opts commentRefs = do
     -- CommentReference may hide multiple unresolved CommentIDs;
     -- gather them all in a single list
     let justSingularRefs = concatMap treeSubComments commentRefs
         unresolved = [ cid | Reference _ [CommentID cid] <- justSingularRefs ]
 
     -- Resolve those references, getting a HashMap from IDs to Comments
-    result <- liftIO $ runResumeRedditWith rOpts $ do
+    result <- runReddit opts $ do
       let chunked = chunksOf singleCommentGetLimit unresolved
       resolved <- (concat <$>) . forM chunked $ \cids -> do
         -- TODO: handle the possible (but unlikely) `after` in the response
@@ -186,7 +182,7 @@ fetchCommentReplies opts@Options{..} Comment{..} = do
 
     -- Use it to translate all CommentReferences to Comments
     case result of
-      Left (err, _) -> return $ Left err
+      Left err -> return $ Left err
       Right refMap -> do
         let resolveRef = \case
               Actual c -> Just c
@@ -212,9 +208,7 @@ upvoteComment opts Comment{..} = do
     _ -> do
       logFmt Info "Upvoting comment #{} in /r/{} [{}] -> [{}]"
         (cid, subr, showScore score, showScore $ (+1) <$> score)
-      redditOpts <- newRedditOptions opts
-      result <- liftIO $ runRedditWith redditOpts $
-        R.upvoteComment commentID
+      result <- runReddit opts $ R.upvoteComment commentID
       case result of
         Left err ->
           logFmt Warn "Failed to upvote comment #{}: {}" (cid, tshow err)
@@ -228,12 +222,18 @@ upvoteComment opts Comment{..} = do
 
 -- Utilities
 
-newRedditOptions :: MonadIO m => Options -> m RedditOptions
-newRedditOptions opts = do
+-- | Run a RedditT action using program Options.
+runReddit :: MonadIO m =>
+             Options -> RedditT m a -> m (Either (APIError RedditError) a)
+runReddit opts action = do
   -- Reuse HTTP connection manager between Reddit calls.
   httpManager <- liftIO TLS.getGlobalManager
-  let redditOpts = toRedditOptions opts
-  return redditOpts { connectionManager = Just httpManager}
+  let rOpts = (toRedditOptions opts) { connectionManager = Just httpManager}
+
+  -- Optionally stub out Reddit API base URL.
+  let withRedditURL = maybe id withBaseURL $ optBaseURL opts
+  (mapLeft fst <$>) . runResumeRedditWith rOpts $
+    withRedditURL action
 
 newFetchOptions :: Options -> Maybe a -> R.Options a
 newFetchOptions Options{..} after =

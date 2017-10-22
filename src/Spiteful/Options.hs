@@ -23,6 +23,7 @@ import GHC.Generics (Generic)
 import Options.Applicative
 import Reddit hiding (Options)
 import Reddit.Types.Listing
+import Reddit.Types.Reddit (mainBaseURL)
 import Safe (readMay)
 
 import Paths_spiteful (version)
@@ -40,6 +41,7 @@ botVersion = Text.pack $ showVersion version
 -- Fields that have Nothing should be defaulted on upon use.
 data Options = Options
   { optVerbosity :: Int  -- ^ How many times the -v flag was passed
+  , optBaseURL :: Maybe Text  -- ^ Alt. base URL for Reddit API (for testing)
   , optCredentials :: Maybe (Text, Text)
   , optSubreddit :: Maybe SubredditName
   , optListing :: Maybe ListingType
@@ -71,6 +73,13 @@ commandLine = info (options <**> helper)
 options :: Parser Options
 options = do
   verbosity' <- verbosity
+  baseUrl <- optional $ option str
+      ( long "baseUrl" <> metavar "URL"
+      <> internal  -- won't show up even when --help is passed
+      <> help (Text.unpack $ "Alternate base URL for Reddit API "
+                             <> "(default is" <> mainBaseURL <> ")")
+      )
+
   username <- optional $ option str
       ( long "user" <> short 'u' <> metavar "USERNAME"
       <> help ("Reddit username to use for the bot. "
@@ -81,16 +90,17 @@ options = do
       <> help ("Password to the bot's Reddit account. "
                <> "Pass `-` to read it from stdin.")
       )
-  listingType <- optional $ option listing
-      ( long "watch" <> short 'w' <> metavar "WHAT"
-      <> help (Text.unpack $ "Which Reddit listing to watch: "
-                              <> intercalateWithLast " or " ", " listings)
-      )
   userAgent <- optional $ option str
       ( long "user-agent" <> short 'A'
       <> metavar "USER-AGENT"
       <> help "Custom value for the User-Agent header sent with all requests"
       <> hidden
+      )
+
+  listingType <- optional $ option listing
+      ( long "watch" <> short 'w' <> metavar "WHAT"
+      <> help (Text.unpack $ "Which Reddit listing to watch: "
+                              <> intercalateWithLast " or " ", " listings)
       )
   batchSize <- optional $ option auto
       ( long "batch" <> short 'b'
@@ -98,11 +108,13 @@ options = do
       <> help "How many Reddit posts to fetch in a single request"
       <> hidden
       )
+
   subreddit <- optional $ argument str
       ( metavar "SUBREDDIT"
       <> help "Subreddit to limit the bot to. By default, it watches the entire Reddit"
       )
   return def { optVerbosity = verbosity'
+             , optBaseURL = baseUrl
              , optCredentials = liftA2 (,) username password
              , optSubreddit = R . stripSlashR <$> subreddit
              , optListing = listingType
