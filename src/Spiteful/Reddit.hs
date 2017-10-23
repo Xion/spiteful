@@ -10,7 +10,7 @@ import Control.Monad.IO.Class
 import Data.Either.Combinators (mapLeft)
 import qualified Data.HashMap.Strict as HM
 import Data.List.Split (chunksOf)
-import Data.Maybe (fromMaybe, isNothing, mapMaybe)
+import Data.Maybe (fromMaybe, isJust, isNothing, mapMaybe)
 import Data.Monoid ((<>))
 import qualified Network.HTTP.Client.TLS as TLS
 import Pipes
@@ -111,9 +111,14 @@ type CommentProducer m = Producer Comment m (EitherR ())
 
 fetchNewComments :: MonadIO m => Options -> CommentProducer m
 fetchNewComments opts@Options{..} = do
-  logAt Debug $ "Fetching new comments from " <>
-    maybe "the entire Reddit" (("subreddit: " <>) . tshow) optSubreddit
-  doFetch opts Nothing
+  -- Only authenticated users can watch the stream of all new Reddit comments
+  if isNothing optCredentials && isJust optSubreddit then do
+    logAt Warn "Cannot fetch /comments from the entire Reddit unless logged in"
+    return $ Left (APIError CredentialsError)
+  else do
+    logAt Debug $ "Fetching new comments from " <>
+      maybe "the entire Reddit" (("subreddit: " <>) . tshow) optSubreddit
+    doFetch opts Nothing
   where
   doFetch :: MonadIO m => Options -> Maybe CommentID -> CommentProducer m
   doFetch opts after = do

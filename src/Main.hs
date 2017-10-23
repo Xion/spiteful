@@ -10,7 +10,8 @@ import Control.Exception (throwTo)
 import Control.Monad
 import Control.Monad.IO.Class
 import Data.Either.Combinators (isRight, whenLeft)
-import Data.Maybe (isJust, isNothing)
+import qualified Data.HashSet as HS
+import Data.Maybe (fromMaybe, isJust, isNothing)
 import Data.Monoid ((<>))
 import qualified Data.Text as Text
 import qualified Data.Text.IO as Text
@@ -53,10 +54,10 @@ main = do
 
   TLS.setGlobalManager =<< TLS.newTlsManager
 
-  -- TODO: pick what to run based on command line arguments
-  mapConcurrently_ ($ opts) [ monitorDontUpvotePosts
-                            , monitorDAEComments
-                            ]
+  let features = fromMaybe defaultFeatures optFeatures
+  logAt Info $ "Features: " <> csv features
+  let workerFuncs = resolveFeatures features
+  mapConcurrently_ ($ opts) workerFuncs
 
 
 parseArgs :: IO Options
@@ -79,6 +80,12 @@ parseArgs = do
   where
   userPrompt = "Reddit username"
   passPrompt = "Reddit password"
+
+resolveFeatures :: Features -> [Options -> IO ()]
+resolveFeatures = map func . HS.toList
+  where
+  func FeatureDontUpvote = monitorDontUpvotePosts
+  func FeatureDAE = monitorDAEComments
 
 
 -- Upvoting "don't upvote" posts
@@ -202,6 +209,7 @@ printStatistics = do
     , "'dont upvote' posts seen: " <> tshow dontUpvotePostsSeen'
     , "Posts upvoted: " <> tshow postsUpvoted'
     , sep
+    -- TODO: only show this if relevant --feature has been turned on
     , "Total comments seen: " <> tshow commentsSeen'
     , "DAE comments seen: " <> tshow daeCommentsSeen'
     , "Comments replied to: " <> tshow commentsRepliedTo'

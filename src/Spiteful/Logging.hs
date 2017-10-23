@@ -18,13 +18,12 @@ import Data.Char (isDigit)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as Text
-import Data.Text.Format (Format, format)
+import Data.Text.Format (Format)
 import Data.Text.Format.Params (Params)
-import Data.Text.Lazy (toStrict)
 import System.IO (stderr)
 import System.IO.Unsafe (unsafePerformIO)
 
-import Spiteful.Util (tshow)
+import Spiteful.Util (tshow, fmt)
 
 
 data LogLevel = Trace | Debug | Info | Warn | Error
@@ -32,7 +31,7 @@ data LogLevel = Trace | Debug | Info | Warn | Error
 
 
 logFmt :: (MonadIO m, Params ps) => LogLevel -> Format -> ps -> m ()
-logFmt level fmt ps = logAt level $ toStrict $ format fmt ps
+logFmt level f ps = logAt level $ fmt f ps
 
 logAt :: MonadIO m => LogLevel -> Text -> m ()
 logAt level msg = do

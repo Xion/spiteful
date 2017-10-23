@@ -8,10 +8,16 @@ module Spiteful.Options
   , commandLine
   , Options(..)
   , toRedditOptions
+  , Feature(..)
+  , Features
+  , defaultFeatures
   ) where
 
 import Control.Applicative ((<$>), liftA2)
 import Data.Default
+import Data.Hashable (Hashable)
+import Data.HashSet (HashSet)
+import qualified Data.HashSet as HS
 import Data.List (foldl')
 import Data.Maybe (fromMaybe)
 import Data.Monoid ((<>))
@@ -42,12 +48,15 @@ botVersion = Text.pack $ showVersion version
 data Options = Options
   { optVerbosity :: Int  -- ^ How many times the -v flag was passed
   , optBaseURL :: Maybe Text  -- ^ Alt. base URL for Reddit API (for testing)
+  , optFeatures :: Maybe Features  -- ^ What features should be enabled
   , optCredentials :: Maybe (Text, Text)
   , optSubreddit :: Maybe SubredditName
   , optListing :: Maybe ListingType
   , optUserAgent :: Maybe Text
   , optBatchSize :: Maybe Int
   } deriving (Generic, Show)
+-- TODO: this is actually raw options parsed from command line, hence Maybes;
+-- introduce another variant of this record type where the default are filled in
 
 instance Default Options
 
@@ -58,6 +67,23 @@ toRedditOptions Options{..} = RedditOptions
   , loginMethod = maybe Anonymous (uncurry Credentials) optCredentials
   , customUserAgent = Just $ Text.encodeUtf8 $ fromMaybe defaultUserAgent optUserAgent
   }
+
+
+-- | Bot feature that can be turned on or off.
+data Feature = FeatureDontUpvote | FeatureDAE
+               deriving (Bounded, Enum, Eq, Generic, Ord, Read)
+
+instance Hashable Feature
+
+instance Show Feature where
+  show FeatureDontUpvote = "dont-upvote"
+  show FeatureDAE = "dae"
+
+type Features = HashSet Feature
+
+-- | Default for when no --feature flag has been passed.
+defaultFeatures :: Features
+defaultFeatures = HS.fromList [FeatureDontUpvote]
 
 
 -- Parsing command line options
@@ -97,9 +123,15 @@ options = do
       <> hidden
       )
 
+  features' <- optional $ option features
+      ( long "features" <> short 'f' <> metavar "FEATURE[, FEATURE, [...]]"
+      <> help (Text.unpack $ fmt (
+          "Comma-separated list of features to enable. "
+          <> "Choices include: [{}]. Default: [{}]")
+          (csv $ ([minBound..maxBound] :: [Feature]), csv defaultFeatures)))
   listingType <- optional $ option listing
       ( long "watch" <> short 'w' <> metavar "WHAT"
-      <> help (Text.unpack $ "Which Reddit listing to watch: "
+      <> help (Text.unpack $ "Which listing of Reddit posts to watch: "
                               <> intercalateWithLast " or " ", " listings)
       )
   batchSize <- optional $ option auto
@@ -115,6 +147,7 @@ options = do
       )
   return def { optVerbosity = verbosity'
              , optBaseURL = baseUrl
+             , optFeatures = features'
              , optCredentials = liftA2 (,) username password
              , optSubreddit = R . stripSlashR <$> subreddit
              , optListing = listingType
@@ -122,10 +155,6 @@ options = do
              , optBatchSize = batchSize
              }
   where
-  listing :: ReadM ListingType
-  listing =
-      maybeReader $ readMay . Text.unpack . capitalize . Text.strip . Text.pack
-
   -- TODO: make passing too many --v/--q a parse error
   verbosity :: Parser Int
   verbosity = fromMaybe 0 <$> optional (verbose <|> quiet)
@@ -136,6 +165,15 @@ options = do
     quiet = length <$> many (flag' ()
         (long "quiet" <> short 'q'
         <> help "Decrease the verbosity of logging output"))
+
+  features :: ReadM Features
+  features = maybeReader $ (HS.fromList <$>)
+    . sequence . map (readMay . Text.unpack . Text.strip)
+    . Text.splitOn "," . Text.toLower . Text.pack
+
+  listing :: ReadM ListingType
+  listing =
+      maybeReader $ readMay . Text.unpack . capitalize . Text.strip . Text.pack
 
   listings = map (Text.toLower . tshow) [New, Hot, Rising, Controversial]
 

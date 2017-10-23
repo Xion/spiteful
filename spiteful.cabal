@@ -25,6 +25,7 @@ executable spiteful
                        , base >= 4.7 && < 5
                        , data-default >= 0.7
                        , either >= 4.4
+                       , hashable >= 1.2.6.1
                        , http-client-tls
                        , optparse-applicative >= 0.14
                        , pipes
