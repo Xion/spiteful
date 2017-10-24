@@ -11,6 +11,8 @@ Currently, it:
 
 * looks for new posts that have "don't upvote" (or similar) in the title
   and _specifically upvotes them_
+* looks for new comments that contain "does anyone else?" (or similar)
+  and replies with _No._
 
 ## Development notes
 

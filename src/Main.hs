@@ -48,10 +48,13 @@ main = do
   opts@Options{..} <- parseArgs
   setLogLevel $ toEnum $ fromEnum defaultLogLevel - optVerbosity
 
+  -- TODO: don't include FeatureDAE if there are no credentials
+  let features = fromMaybe defaultFeatures optFeatures
+
   tid <- myThreadId
   installHandler sigINT $ \_ -> do
     -- TODO: some way of printing statistics w/o closing the program
-    printStatistics
+    printStatistics features
     throwTo tid ExitSuccess
 
   logAt Info $ "spiteful-bot v" <> botVersion
@@ -59,8 +62,6 @@ main = do
 
   TLS.setGlobalManager =<< TLS.newTlsManager
 
-  -- TODO: don't include FeatureDAE if there are no credentials
-  let features = fromMaybe defaultFeatures optFeatures
   logAt Info $ "Features: " <> csv features
   let workerFuncs = resolveFeatures features
   mapConcurrently_ ($ opts) workerFuncs
@@ -158,11 +159,16 @@ findDAEPhrase comment = (comment,) <$> headMay
     ]
   where
   commentString = Text.unpack $ body comment
-  phrases = map (mkRegex' . (sentenceSepRe ++)) [ "dae"
-                                                , "does any\\s?one else[?]*"
-                                                , "is any\\s?one else[?]*"
-                                                ]
+  phrases = map (mkRegex' . (sentenceSepRe ++))
+      [ "dae" , "does ae" , "is ae" , "has ae"
+      , "dae " ++ anyoneElse -- yes, some dimwits write it like this
+      , "does " ++ anyoneElse
+      , "is " ++ anyoneElse
+      , "has " ++ anyoneElse
+      ]
   sentenceSepRe = "^\\s*|.\\s+"  -- start of text/line or full stop
+  anyoneElse = "any\\s?one else[?]*"
+
   mkRegex' r  = mkRegexWithOpts r singleLine caseSensitive
     where
     singleLine = True  -- ^ and $ match beginning/end of the line
@@ -224,25 +230,26 @@ commentsRepliedTo = unsafePerformIO $ newMVar 0
 countAs :: (MonadIO m, Num n) => MVar n -> Pipe a a m r
 countAs mvar = P.chain $ \_ -> liftIO $ modifyMVar_ mvar (return . (+1))
 
-printStatistics :: IO ()
-printStatistics = do
-  postsSeen' <- readMVar postsSeen
-  dontUpvotePostsSeen' <- readMVar dontUpvotePostsSeen
-  postsUpvoted' <- readMVar postsUpvoted
-  commentsSeen' <- readMVar commentsSeen
-  daeCommentsSeen' <- readMVar daeCommentsSeen
-  commentsRepliedTo' <- readMVar commentsRepliedTo
-  mapM_ Text.putStrLn
-    [ sep
-    , "Total posts seen: " <> tshow postsSeen'
-    , "'dont upvote' posts seen: " <> tshow dontUpvotePostsSeen'
-    , "Posts upvoted: " <> tshow postsUpvoted'
-    , sep
-    -- TODO: only show this if relevant --feature has been turned on
-    , "Total comments seen: " <> tshow commentsSeen'
-    , "DAE comments seen: " <> tshow daeCommentsSeen'
-    , "Comments replied to: " <> tshow commentsRepliedTo'
-    , sep
-    ]
+printStatistics :: Features -> IO ()
+printStatistics features = do
+  lines <- (concat <$>) . mapM (((sep:) <$>) . stats) $ HS.toList features
+  mapM_ Text.putStrLn $ lines <> [sep]
   where
+  stats FeatureDontUpvote = do
+    postsSeen' <- readMVar postsSeen
+    dontUpvotePostsSeen' <- readMVar dontUpvotePostsSeen
+    postsUpvoted' <- readMVar postsUpvoted
+    return [ "Total posts seen: " <> tshow postsSeen'
+           , "'dont upvote' posts seen: " <> tshow dontUpvotePostsSeen'
+           , "Posts upvoted: " <> tshow postsUpvoted'
+           ]
+  stats FeatureDAE = do
+    commentsSeen' <- readMVar commentsSeen
+    daeCommentsSeen' <- readMVar daeCommentsSeen
+    commentsRepliedTo' <- readMVar commentsRepliedTo
+    return [ "Total comments seen: " <> tshow commentsSeen'
+           , "DAE comments seen: " <> tshow daeCommentsSeen'
+           , "Comments replied to: " <> tshow commentsRepliedTo'
+           ]
+
   sep = Text.replicate 20 "-"
