@@ -4,6 +4,8 @@
 # and https://github.com/simonmichael/hledger/blob/master/.travis.yml
 
 language: generic
+os:
+  - linux
 sudo: false
 
 before_install:
@@ -35,12 +37,19 @@ addons:
     packages:
     - ghc-7.10.2
 
+# Meta
+
+branches:
+  only:
+    - master
+
+git:
+  # Don't set this to 1
+  # (see note at https://docs.travis-ci.com/user/customizing-the-build#Git-Clone-Depth)
+  depth: 5
+
 cache:
   directories:
     - $HOME/.stack
     - $HOME/.local/bin
     - .stack-work
-
-branches:
-  only:
-    - master
