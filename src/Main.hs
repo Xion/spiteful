@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TupleSections #-}
 
 module Main where
 
@@ -13,6 +14,7 @@ import Data.Either.Combinators (isRight, whenLeft)
 import qualified Data.HashSet as HS
 import Data.Maybe (fromMaybe, isJust, isNothing)
 import Data.Monoid ((<>))
+import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as Text
 import qualified Network.HTTP.Client.TLS as TLS
@@ -24,6 +26,7 @@ import Reddit.Types.Comment
 import Reddit.Types.Post
 import Reddit.Types.Subreddit (SubredditName(..))
 import Reddit.Types.User (Username(..))
+import Safe (headMay)
 import System.Exit
 import System.IO
 import System.IO.Unsafe (unsafePerformIO)
@@ -139,21 +142,26 @@ monitorDAEComments :: Options -> IO ()
 monitorDAEComments opts = do
   result <- runEffect $
     fetchNewComments opts >-> countAs commentsSeen
-    >-> P.filter isDAEComment >-> countAs daeCommentsSeen
-    >-> P.filterM ((not <$>) . hasCommentBeenRepliedTo opts)
-    >-> P.mapM (replyToDAEComment opts) >-> P.filter isRight
-                                        >-> countAs commentsRepliedTo
+    >-> P.mapFoldable findDAEPhrase >-> countAs daeCommentsSeen
+    >-> P.filterM ((not <$>) . hasCommentBeenRepliedTo opts . fst)
+    >-> P.mapM (uncurry $ replyToDAEComment opts)
+                >-> P.filter isRight
+                >-> countAs commentsRepliedTo
     >-> P.drain
   whenLeft result $ \err ->
     logAt Error $ "Error when fetching comments: " <> tshow err
 
--- TODO: return the matched DAE phrase so it can be used in the reply
-isDAEComment :: Comment -> Bool
-isDAEComment comment = any (isJust . flip matchRegex commentString) phrases
+findDAEPhrase :: Comment -> Maybe (Comment, Text)
+findDAEPhrase comment = (comment,) <$> headMay
+    [ Text.pack $ phrase
+    | Just (_, phrase, _, _) <- map (flip matchRegexAll commentString) phrases
+    ]
   where
   commentString = Text.unpack $ body comment
-  phrases = map (mkRegex' . (sentenceSepRe ++))
-      [ "dae", "does any\\s?one else" ]
+  phrases = map (mkRegex' . (sentenceSepRe ++)) [ "dae"
+                                                , "does any\\s?one else[?]*"
+                                                , "is any\\s?one else[?]*"
+                                                ]
   sentenceSepRe = "^\\s*|.\\s+"  -- start of text/line or full stop
   mkRegex' r  = mkRegexWithOpts r singleLine caseSensitive
     where
@@ -181,11 +189,11 @@ hasCommentBeenRepliedTo opts comment@Comment{..} = do
                                Just (username, _) = optCredentials opts
                            in commenter == username
 
-replyToDAEComment :: MonadIO m => Options -> Comment -> m (EitherR ())
-replyToDAEComment opts Comment{..} = do
+replyToDAEComment :: MonadIO m => Options -> Comment -> Text -> m (EitherR ())
+replyToDAEComment opts Comment{..} daePhrase = do
   let CommentID cid = commentID
       R subr = subreddit
-  let replyText = "No." -- TODO: include original DAE text as a quote
+  let replyText = "> " <> daePhrase <> "\n\nNo."
   logFmt Info "Replying to comment #{} on /r/{} with \"{}\""
               (cid, subr, replyText)
   result <- runReddit opts $ reply commentID replyText
