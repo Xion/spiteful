@@ -30,6 +30,7 @@ executable spiteful
                        , optparse-applicative >= 0.14
                        , pipes
                        , reddit >= 0.2
+                       , regex-compat >= 0.95
                        , signal >= 0.1
                        , safe >= 0.3
                        , split >= 0.2

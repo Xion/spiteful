@@ -19,6 +19,7 @@ import qualified Network.HTTP.Client.TLS as TLS
 import Options.Applicative
 import Pipes
 import qualified Pipes.Prelude as P
+import Reddit.Actions.Thing (reply)
 import Reddit.Types.Comment
 import Reddit.Types.Post
 import Reddit.Types.Subreddit (SubredditName(..))
@@ -27,6 +28,7 @@ import System.Exit
 import System.IO
 import System.IO.Unsafe (unsafePerformIO)
 import System.Signal (installHandler, sigINT)
+import Text.Regex
 
 import Spiteful.Options
 import Spiteful.Logging
@@ -54,6 +56,7 @@ main = do
 
   TLS.setGlobalManager =<< TLS.newTlsManager
 
+  -- TODO: don't include FeatureDAE if there are no credentials
   let features = fromMaybe defaultFeatures optFeatures
   logAt Info $ "Features: " <> csv features
   let workerFuncs = resolveFeatures features
@@ -144,8 +147,18 @@ monitorDAEComments opts = do
   whenLeft result $ \err ->
     logAt Error $ "Error when fetching comments: " <> tshow err
 
+-- TODO: return the matched DAE phrase so it can be used in the reply
 isDAEComment :: Comment -> Bool
-isDAEComment Comment{..} = False -- TODO
+isDAEComment comment = any (isJust . flip matchRegex commentString) phrases
+  where
+  commentString = Text.unpack $ body comment
+  phrases = map (mkRegex' . (sentenceSepRe ++))
+      [ "dae", "does any\\s?one else" ]
+  sentenceSepRe = "^\\s*|.\\s+"  -- start of text/line or full stop
+  mkRegex' r  = mkRegexWithOpts r singleLine caseSensitive
+    where
+    singleLine = True  -- ^ and $ match beginning/end of the line
+    caseSensitive = False
 
 hasCommentBeenRepliedTo :: Options -> Comment -> IO Bool
 hasCommentBeenRepliedTo opts _ | isNothing (optCredentials opts) = return False
@@ -172,8 +185,16 @@ replyToDAEComment :: MonadIO m => Options -> Comment -> m (EitherR ())
 replyToDAEComment opts Comment{..} = do
   let CommentID cid = commentID
       R subr = subreddit
-  logFmt Info "Would have replied to comment #{} on /r/{}" (cid, subr)
-  return $ Right () -- TODO
+  let replyText = "No." -- TODO: include original DAE text as a quote
+  logFmt Info "Replying to comment #{} on /r/{} with \"{}\""
+              (cid, subr, replyText)
+  result <- runReddit opts $ reply commentID replyText
+  case result of
+    Left err -> return $ Left err
+    Right (CommentID replyID) -> do
+      logFmt Debug "Successfuly replied with #{} to comment #{} on /r/{}"
+                   (replyID, cid, subr)
+      return $ Right ()
 
 
 commentsSeen :: MVar Int
