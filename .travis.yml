@@ -1,9 +1,7 @@
 # Travis CI configuration
 
 # Based heavily on https://docs.haskellstack.org/en/stable/travis_ci/
-
-# TODO: improve it with ideas from https://github.com/simonmichael/hledger/blob/master/.travis.yml,
-# like caching of ~/.local/bin
+# and https://github.com/simonmichael/hledger/blob/master/.travis.yml
 
 language: generic
 sudo: false
@@ -12,7 +10,10 @@ before_install:
   # Download and unpack the stack executable
   - mkdir -p ~/.local/bin
   - export PATH=$HOME/.local/bin:$PATH
-  - travis_retry curl -L https://www.stackage.org/stack/linux-x86_64 | tar xz --wildcards --strip-components=1 -C ~/.local/bin '*/stack'
+  - |
+    if [[ ! -x ~/.local/bin/stack ]]; then
+      travis_retry curl -L https://www.stackage.org/stack/linux-x86_64 | tar xz --wildcards --strip-components=1 -C ~/.local/bin '*/stack'
+    fi
   - stack --version
   # Configure stack to use the system GHC installation
   - stack config set system-ghc --global true
@@ -37,6 +38,8 @@ addons:
 cache:
   directories:
     - $HOME/.stack
+    - $HOME/.local/bin
+    - .stack-work
 
 branches:
   only:
