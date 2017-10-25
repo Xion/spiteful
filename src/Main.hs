@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TupleSections #-}
 
 module Main where
@@ -48,7 +46,6 @@ main = do
   opts@Options{..} <- parseArgs
   setLogLevel $ toEnum $ fromEnum defaultLogLevel - optVerbosity
 
-  -- TODO: don't include FeatureDAE if there are no credentials
   let features = fromMaybe defaultFeatures optFeatures
 
   tid <- myThreadId

@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module Spiteful.Logging
  ( defaultLogLevel
  , getLogLevel

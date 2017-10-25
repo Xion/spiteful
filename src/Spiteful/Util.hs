@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module Spiteful.Util where
 
 import Control.Exception (bracket_)

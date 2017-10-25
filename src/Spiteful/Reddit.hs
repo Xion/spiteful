@@ -1,6 +1,4 @@
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards #-}
 
 module Spiteful.Reddit where
 
@@ -32,9 +30,6 @@ type EitherR = Either (APIError RedditError)
 
 type PostProducer m = Producer Post m (EitherR ())
 
--- TODO: remember the IDs of posts already fetched so we can not yield
--- duplicates and stop/restart from the beginning of the listing if duplicates
--- are encountered
 fetchPosts :: MonadIO m => Options -> PostProducer m
 fetchPosts opts@Options{..} = do
   logAt Debug $ "Fetching " <> tshow listingType <> " posts from " <>
@@ -193,7 +188,7 @@ fetchCommentReplies opts Comment{..} = do
               Actual c -> Just c
               Reference _ [CommentID cid] -> HM.lookup cid refMap
               _ -> Nothing
-        forM_ (mapMaybe resolveRef commentRefs) $
+        forM_ (mapMaybe resolveRef justSingularRefs) $
           yield
         return $ Right ()
     where
