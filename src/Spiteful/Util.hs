@@ -7,12 +7,12 @@ import Data.Foldable (toList)
 import Data.Monoid ((<>))
 import Data.Text (Text)
 import qualified Data.Text as Text
-import qualified Data.Text.IO as Text
 import Data.Text.Format (Format, format)
 import Data.Text.Format.Params (Params)
 import Data.Text.ICU.Char
 import Data.Text.ICU.Normalize
-import Data.Text.Lazy (toStrict)
+import qualified Data.Text.IO as Text
+import qualified Data.Text.Lazy as Text (toStrict)
 import System.IO
 
 
@@ -20,11 +20,10 @@ tshow :: Show a => a -> Text
 tshow = Text.pack . show
 
 fmt :: Params ps => Format -> ps -> Text
-fmt f ps = toStrict $ format f ps
+fmt f ps = Text.toStrict $ format f ps
 
 capitalize :: Text -> Text
 capitalize "" = ""
-capitalize s | Text.length s == 1 = Text.toUpper s
 capitalize s = Char.toUpper (Text.head s) `Text.cons` Text.tail s
 
 csv :: (Show a, Foldable t) => t a -> Text

@@ -28,6 +28,7 @@ import Safe (headMay)
 import System.Exit
 import System.IO
 import System.IO.Unsafe (unsafePerformIO)
+import System.Random
 import System.Signal (installHandler, sigINT)
 import Text.Regex
 
@@ -156,13 +157,13 @@ findDAEPhrase comment = (comment,) <$> headMay
     ]
   where
   commentString = Text.unpack $ body comment
-  phrases = map (mkRegex' . (sentenceSepRe ++))
-      [ "dae" , "does ae" , "is ae" , "has ae"
+  phrases = map (mkRegex' . (sentenceSepRe ++)) $
+      [ "does ae" , "is ae" , "has ae"
       , "dae " ++ anyoneElse -- yes, some dimwits write it like this
       , "does " ++ anyoneElse
       , "is " ++ anyoneElse
       , "has " ++ anyoneElse
-      ]
+      ] <> ["dae"]
   sentenceSepRe = "^\\s*|.\\s+"  -- start of text/line or full stop
   anyoneElse = "any\\s?one else[?]*"
 
@@ -196,16 +197,24 @@ replyToDAEComment :: MonadIO m => Options -> Comment -> Text -> m (EitherR ())
 replyToDAEComment opts Comment{..} daePhrase = do
   let CommentID cid = commentID
       R subr = subreddit
-  let replyText = "> " <> daePhrase <> "\n\nNo."
+  replyText <- sample phrases
+  let fullReplyText = "> " <> daePhrase <> "\n\n" <> replyText
   logFmt Info "Replying to comment #{} on /r/{} with \"{}\""
-              (cid, subr, replyText)
-  result <- runReddit opts $ reply commentID replyText
+              (cid, subr, fullReplyText)
+  result <- runReddit opts $ reply commentID fullReplyText
   case result of
     Left err -> return $ Left err
     Right (CommentID replyID) -> do
       logFmt Debug "Successfuly replied with #{} to comment #{} on /r/{}"
                    (replyID, cid, subr)
       return $ Right ()
+  where
+  phrases = ["No.", "Nope.", "Not really."]
+
+  sample :: MonadIO m => [a] -> m a
+  sample xs = do
+    idx <- liftIO $ randomRIO (0, length xs - 1)
+    return $ xs !! idx
 
 
 commentsSeen :: MVar Int

@@ -31,6 +31,7 @@ executable spiteful
                        , http-client-tls
                        , optparse-applicative >= 0.14
                        , pipes
+                       , random >= 1.1
                        , reddit >= 0.2
                        , regex-compat >= 0.95
                        , signal >= 0.1

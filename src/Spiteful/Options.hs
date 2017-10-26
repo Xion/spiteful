@@ -135,13 +135,14 @@ options = do
   batchSize <- optional $ option auto
       ( long "batch" <> short 'b'
       <> metavar "SIZE"
-      <> help "How many Reddit posts to fetch in a single request"
+      <> help "How many Reddit posts or comments to fetch in a single request"
       <> hidden
       )
 
   subreddit <- optional $ argument str
       ( metavar "SUBREDDIT"
-      <> help "Subreddit to limit the bot to. By default, it watches the entire Reddit"
+      <> help ("Subreddit to limit the bot to. "
+               <> "By default, it watches the entire Reddit")
       )
   return def { optVerbosity = verbosity'
              , optBaseURL = baseUrl
