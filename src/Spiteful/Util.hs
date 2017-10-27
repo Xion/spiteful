@@ -29,8 +29,15 @@ capitalize s = Char.toUpper (Text.head s) `Text.cons` Text.tail s
 csv :: (Show a, Foldable t) => t a -> Text
 csv = Text.intercalate ", " . map tshow . toList
 
+-- | Remove as many distinguishing features from Text as possible.
+deburr :: Text -> Text
+deburr = Text.toCaseFold . stripAccents . collapseWhitespace
+
 stripAccents :: Text -> Text
 stripAccents = Text.filter (not . property Diacritic) . normalize NFD
+
+collapseWhitespace :: Text -> Text
+collapseWhitespace = Text.unwords . Text.words
 
 
 data Echo = EchoOn | EchoOff deriving (Eq)

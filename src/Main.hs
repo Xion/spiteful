@@ -109,14 +109,12 @@ monitorDontUpvotePosts opts = do
 isDontUpvotePost :: Post -> Bool
 isDontUpvotePost Post{..} = any (`Text.isInfixOf` title') phrases
   where
-  title' = toPlain title
-  phrases = map toPlain [ "don't upvote"
-                        , "dont upvote"
-                        , "no upvote"
-                        , "not upvote"
-                        ]
-  toPlain = Text.toCaseFold . stripAccents . collapseWhitespace
-  collapseWhitespace = Text.unwords . Text.words
+  title' = deburr title
+  phrases = map deburr [ "don't upvote"
+                       , "dont upvote"
+                       , "no upvote"
+                       , "not upvote"
+                       ]
 
 hasBeenVotedOn :: Post -> Bool
 hasBeenVotedOn = isJust . liked
@@ -156,7 +154,7 @@ findDAEPhrase comment = (comment,) <$> headMay
     | Just (_, phrase, _, _) <- map (flip matchRegexAll commentString) phrases
     ]
   where
-  commentString = Text.unpack $ body comment
+  commentString = Text.unpack $ deburr $ body comment
   phrases = map (mkRegex' . (sentenceSepRe ++)) $
       [ "does ae" , "is ae" , "has ae"
       , "dae " ++ anyoneElse -- yes, some dimwits write it like this
@@ -167,7 +165,7 @@ findDAEPhrase comment = (comment,) <$> headMay
   sentenceSepRe = "^\\s*|.\\s+"  -- start of text/line or full stop
   anyoneElse = "any\\s?one else[?]*"
 
-  mkRegex' r  = mkRegexWithOpts r singleLine caseSensitive
+  mkRegex' r = mkRegexWithOpts r singleLine caseSensitive
     where
     singleLine = True  -- ^ and $ match beginning/end of the line
     caseSensitive = False
