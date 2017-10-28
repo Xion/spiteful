@@ -79,25 +79,40 @@ fetchPosts opts@Options{..} = do
       Top -> 5 * 60  -- /top shouldn't really change a lot
 
 
-upvotePost :: MonadIO m => Options -> Post -> m (EitherR ())
-upvotePost opts Post{..} = do
+data Voting = Upvote | Downvote
+              deriving (Bounded, Enum, Eq, Show)
+
+voteOnPost :: MonadIO m => Options -> Voting -> Post -> m (EitherR ())
+voteOnPost opts voting Post{..} = do
   let PostID pid = postID
       R subr = subreddit
   case optCredentials opts of
     Nothing -> do
       logFmt Warn
-        "Cannot upvote post #{} (\"{}\" in /r/{}) due to lack of credentials"
+        "Cannot vote on post #{} (\"{}\" in /r/{}) due to lack of credentials"
         (pid, title, subr)
       return $ Left $ APIError CredentialsError
     _ -> do
-      logFmt Info "Upvoting post #{} (\"{}\" in /r/{}) [{}] -> [{}]"
-        (pid, title, subr, score, score + 1)
-      result <- runReddit opts $ R.upvotePost postID
+      logFmt Info "Voting on post #{} (\"{}\" in /r/{}) [{}] -> [{}]"
+        (pid, title, subr, score, newScore)
+      result <- runReddit opts $ doVote postID
       case result of
-        Left err -> logFmt Warn "Failed to upvote post #{}: {}" (pid, tshow err)
-        Right _ -> logFmt Debug "Successfully upvoted post #{} in /r/{}"
+        Left err ->
+          logFmt Warn "Failed to vote on post #{}: {}" (pid, tshow err)
+        Right _ -> logFmt Debug "Successfully voted on post #{} in /r/{}"
                                 (pid, subr)
       return result
+  where
+  newScore = case voting of Upvote -> score + 1
+                            Downvote -> score - 1
+  doVote = case voting of Upvote -> R.upvotePost
+                          Downvote -> R.downvotePost
+
+upvotePost :: MonadIO m => Options -> Post -> m (EitherR ())
+upvotePost opts = voteOnPost opts Upvote
+
+downvotePost :: MonadIO m => Options -> Post -> m (EitherR ())
+downvotePost opts = voteOnPost opts Downvote
 
 
 -- Comments

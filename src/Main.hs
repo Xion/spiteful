@@ -90,6 +90,7 @@ resolveFeatures :: Features -> [Options -> IO ()]
 resolveFeatures = map func . HS.toList
   where
   func FeatureDontUpvote = monitorDontUpvotePosts
+  func FeatureUpvoteIf = monitorUpvoteIfPosts
   func FeatureDAE = monitorDAEComments
 
 
@@ -120,6 +121,7 @@ hasBeenVotedOn :: Post -> Bool
 hasBeenVotedOn = isJust . liked
 
 
+-- TODO: this is shared with FeatureUpvoteIf, find a better place for it
 postsSeen :: MVar Int
 postsSeen = unsafePerformIO $ newMVar 0
 {-# NOINLINE postsSeen #-}
@@ -131,6 +133,38 @@ dontUpvotePostsSeen = unsafePerformIO $ newMVar 0
 postsUpvoted :: MVar Int
 postsUpvoted = unsafePerformIO $ newMVar 0
 {-# NOINLINE postsUpvoted #-}
+
+
+-- Downvoting "upvote if" posts
+
+monitorUpvoteIfPosts :: Options -> IO ()
+monitorUpvoteIfPosts opts = do
+  result <- runEffect $
+    fetchPosts opts >-> countAs postsSeen
+    >-> P.filter isUpvoteIfPost >-> countAs upvoteIfPostsSeen
+    >-> P.filter (not . hasBeenVotedOn)
+    >-> P.mapM (downvotePost opts)
+                >-> P.filter isRight >-> countAs postsDownvoted
+    >-> P.drain
+  whenLeft result $ \err ->
+    logAt Error $ "Error when fetching posts: " <> tshow err
+
+isUpvoteIfPost :: Post -> Bool
+isUpvoteIfPost Post{..} = any (`Text.isInfixOf` title') phrases
+  where
+  title' = deburr title
+  phrases = map deburr [ "upvote if"
+                       , "pls upvote"
+                       ]
+
+
+upvoteIfPostsSeen :: MVar Int
+upvoteIfPostsSeen = unsafePerformIO $ newMVar 0
+{-# NOINLINE upvoteIfPostsSeen #-}
+
+postsDownvoted :: MVar Int
+postsDownvoted = unsafePerformIO $ newMVar 0
+{-# NOINLINE postsDownvoted #-}
 
 
 -- Replying "no" to "does anyone else" comments
@@ -151,7 +185,7 @@ monitorDAEComments opts = do
 findDAEPhrase :: Comment -> Maybe (Comment, Text)
 findDAEPhrase comment = (comment,) <$> headMay
     [ Text.pack $ phrase
-    | Just (_, phrase, _, _) <- map (flip matchRegexAll commentString) phrases
+    | Just (_, phrase, _, _) <- map (`matchRegexAll` commentString) phrases
     ]
   where
   commentString = Text.unpack $ deburr $ body comment
@@ -246,6 +280,14 @@ printStatistics features = do
     return [ "Total posts seen: " <> tshow postsSeen'
            , "'dont upvote' posts seen: " <> tshow dontUpvotePostsSeen'
            , "Posts upvoted: " <> tshow postsUpvoted'
+           ]
+  stats FeatureUpvoteIf = do
+    postsSeen' <- readMVar postsSeen
+    upvoteIfPostsSeen' <- readMVar upvoteIfPostsSeen
+    postsDownvoted' <- readMVar postsDownvoted
+    return [ "Total posts seen: " <> tshow postsSeen'
+           , "'upvote if' posts seen: " <> tshow upvoteIfPostsSeen'
+           , "Posts downvoted: " <> tshow postsDownvoted'
            ]
   stats FeatureDAE = do
     commentsSeen' <- readMVar commentsSeen
