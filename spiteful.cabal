@@ -16,7 +16,12 @@ extra-source-files:  README.md
 executable spiteful
   hs-source-dirs:      src
   main-is:             Main.hs
-  other-modules:       Spiteful.Logging
+  other-modules:       Spiteful.Features
+                       , Spiteful.Features.DAE
+                       , Spiteful.Features.DontUpvote
+                       , Spiteful.Features.UpvoteIf
+                       , Spiteful.Logging
+                       , Spiteful.Metrics
                        , Spiteful.Options
                        , Spiteful.Reddit
                        , Spiteful.Util

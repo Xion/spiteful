@@ -13,8 +13,6 @@ module Spiteful.Options
 
 import Control.Applicative ((<$>), liftA2)
 import Data.Default
-import Data.Hashable (Hashable)
-import Data.HashSet (HashSet)
 import qualified Data.HashSet as HS
 import Data.List (foldl')
 import Data.Maybe (fromMaybe)
@@ -31,6 +29,7 @@ import Reddit.Types.Reddit (mainBaseURL)
 import Safe (readMay)
 
 import Paths_spiteful (version)
+import Spiteful.Features
 import Spiteful.Util
 
 
@@ -65,24 +64,6 @@ toRedditOptions Options{..} = RedditOptions
   , loginMethod = maybe Anonymous (uncurry Credentials) optCredentials
   , customUserAgent = Just $ Text.encodeUtf8 $ fromMaybe defaultUserAgent optUserAgent
   }
-
-
--- | Bot feature that can be turned on or off.
-data Feature = FeatureDontUpvote | FeatureUpvoteIf | FeatureDAE
-               deriving (Bounded, Enum, Eq, Generic, Ord, Read)
-
-instance Hashable Feature
-
-instance Show Feature where
-  show FeatureDontUpvote = "dont-upvote"
-  show FeatureUpvoteIf = "upvote-if"
-  show FeatureDAE = "dae"
-
-type Features = HashSet Feature
-
--- | Default for when no --feature flag has been passed.
-defaultFeatures :: Features
-defaultFeatures = HS.fromList [FeatureDontUpvote, FeatureUpvoteIf]
 
 
 -- Parsing command line options
