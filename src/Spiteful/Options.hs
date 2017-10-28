@@ -104,16 +104,7 @@ options = do
                              <> "(default is" <> mainBaseURL <> ")")
       )
 
-  username <- optional $ option str
-      ( long "user" <> short 'u' <> metavar "USERNAME"
-      <> help ("Reddit username to use for the bot. "
-               <> "Pass `-` to read it from stdin.")
-      )
-  password <- optional $ option str
-      ( long "password" <> short 'p' <> metavar "PASSWORD"
-      <> help ("Password to the bot's Reddit account. "
-               <> "Pass `-` to read it from stdin.")
-      )
+  credentials' <- credentials
   userAgent <- optional $ option str
       ( long "user-agent" <> short 'A'
       <> metavar "USER-AGENT"
@@ -139,16 +130,12 @@ options = do
       <> hidden
       )
 
-  subreddit <- optional $ argument str
-      ( metavar "SUBREDDIT"
-      <> help ("Subreddit to limit the bot to. "
-               <> "By default, it watches the entire Reddit")
-      )
+  subreddit' <- subreddit
   return def { optVerbosity = verbosity'
              , optBaseURL = baseUrl
              , optFeatures = features'
-             , optCredentials = liftA2 (,) username password
-             , optSubreddit = R . stripSlashR <$> subreddit
+             , optCredentials = credentials'
+             , optSubreddit = subreddit'
              , optListing = listingType
              , optUserAgent = userAgent
              , optBatchSize = batchSize
@@ -165,6 +152,20 @@ options = do
         (long "quiet" <> short 'q'
         <> help "Decrease the verbosity of logging output"))
 
+  credentials :: Parser (Maybe (Text, Text))
+  credentials = do
+    username <- optional $ option str
+        ( long "user" <> short 'u' <> metavar "USERNAME"
+        <> help ("Reddit username to use for the bot. "
+                <> "Pass `-` to read it from stdin.")
+        )
+    password <- optional $ option str
+        ( long "password" <> short 'p' <> metavar "PASSWORD"
+        <> help ("Password to the bot's Reddit account. "
+                <> "Pass `-` to read it from stdin.")
+        )
+    return $ liftA2 (,) username password
+
   features :: ReadM Features
   features = maybeReader $ (HS.fromList <$>)
     . sequence . map (readMay . Text.unpack . Text.strip)
@@ -176,18 +177,31 @@ options = do
 
   listings = map (Text.toLower . tshow) [New, Hot, Rising, Controversial]
 
-  stripSlashR s =
-    foldl' (.) id (map stripPrefix prefixes) $ Text.toLower s
-    where
-    stripPrefix p s = fromMaybe s $ Text.stripPrefix p s
-    prefixes = [ "/r/", "r/", "/" ]
+  subreddit :: Parser (Maybe SubredditName)
+  subreddit = do
+    subr <- optional $ argument str
+        ( metavar "SUBREDDIT"
+        <> help ("Subreddit to limit the bot to. "
+                 <> "By default, it watches the entire Reddit")
+        )
+    return $ R . stripSlashR <$> subr
 
-  intercalateWithLast :: Text -> Text -> [Text] -> Text
-  intercalateWithLast lastSep sep xs = case length xs of
-    0 -> ""
-    1 -> head xs
-    2 -> let x:y:[] = xs in x <> lastSep <> y
-    _ -> let y = last xs
-             x = last (init xs)
-             rest = init . init $ xs
-         in Text.intercalate sep rest <> sep <> x <> lastSep <> y
+
+-- Utility functions
+
+stripSlashR :: Text -> Text
+stripSlashR s =
+  foldl' (.) id (map stripPrefix prefixes) $ Text.toLower s
+  where
+  stripPrefix p s = fromMaybe s $ Text.stripPrefix p s
+  prefixes = [ "/r/", "r/", "/" ]
+
+intercalateWithLast :: Text -> Text -> [Text] -> Text
+intercalateWithLast lastSep sep xs = case length xs of
+  0 -> ""
+  1 -> head xs
+  2 -> let x:y:[] = xs in x <> lastSep <> y
+  _ -> let y = last xs
+           x = last (init xs)
+           rest = init . init $ xs
+       in Text.intercalate sep rest <> sep <> x <> lastSep <> y

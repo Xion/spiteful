@@ -32,8 +32,8 @@ import System.Random
 import System.Signal (installHandler, sigINT)
 import Text.Regex
 
-import Spiteful.Options
 import Spiteful.Logging
+import Spiteful.Options
 import Spiteful.Reddit
 import Spiteful.Util
 
@@ -170,7 +170,7 @@ findDAEPhrase comment = (comment,) <$> headMay
     singleLine = True  -- ^ and $ match beginning/end of the line
     caseSensitive = False
 
-hasCommentBeenRepliedTo :: Options -> Comment -> IO Bool
+hasCommentBeenRepliedTo :: MonadIO m => Options -> Comment -> m Bool
 hasCommentBeenRepliedTo opts _ | isNothing (optCredentials opts) = return False
 hasCommentBeenRepliedTo opts comment@Comment{..} = do
   (hasReply, fetchResult) <- any' isOurReply $ fetchCommentReplies opts comment

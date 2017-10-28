@@ -223,12 +223,11 @@ upvoteComment opts Comment{..} = do
 -- Utilities
 
 -- | Run a RedditT action using program Options.
-runReddit :: MonadIO m =>
-             Options -> RedditT m a -> m (Either (APIError RedditError) a)
+runReddit :: MonadIO m => Options -> RedditT m a -> m (EitherR a)
 runReddit opts action = do
   -- Reuse HTTP connection manager between Reddit calls.
   httpManager <- liftIO TLS.getGlobalManager
-  let rOpts = (toRedditOptions opts) { connectionManager = Just httpManager}
+  let rOpts = (toRedditOptions opts) { connectionManager = Just httpManager }
 
   -- Optionally stub out Reddit API base URL.
   let withRedditURL = maybe id withBaseURL $ optBaseURL opts
