@@ -2,6 +2,7 @@ module Spiteful.Features.UpvoteIf
   ( monitorUpvoteIfPosts
   ) where
 
+import Control.Monad
 import Data.Either.Combinators (isRight, whenLeft)
 import Data.Maybe (isJust)
 import Data.Monoid ((<>))
@@ -34,9 +35,8 @@ isUpvoteIfPost :: Post -> Bool
 isUpvoteIfPost Post{..} = any (`Text.isInfixOf` title') phrases
   where
   title' = deburr title
-  phrases = map deburr [ "upvote if"
-                       , "pls upvote"
-                       ]
+  phrases = map deburr $ liftM2 ($) [("pls " <>), (<> " if")]
+                                    ["upvote", "upboat"]
 
 
 hasBeenVotedOn :: Post -> Bool

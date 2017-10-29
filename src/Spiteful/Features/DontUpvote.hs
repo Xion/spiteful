@@ -2,9 +2,11 @@ module Spiteful.Features.DontUpvote
   ( monitorDontUpvotePosts
   ) where
 
+import Control.Monad
 import Data.Either.Combinators (isRight, whenLeft)
 import Data.Maybe (isJust)
 import Data.Monoid ((<>))
+import Data.Text (Text)
 import qualified Data.Text as Text
 import Pipes
 import qualified Pipes.Prelude as P
@@ -33,11 +35,12 @@ isDontUpvotePost :: Post -> Bool
 isDontUpvotePost Post{..} = any (`Text.isInfixOf` title') phrases
   where
   title' = deburr title
-  phrases = map deburr [ "don't upvote"
-                       , "dont upvote"
-                       , "no upvote"
-                       , "not upvote"
-                       ]
+  phrases = map deburr $ wordProduct ["don't", "dont", "no", "not"]
+                                     ["upvote", "upboat"]
+
+  -- | Make a Cartesian product of two word lists.
+  wordProduct :: [Text] -> [Text] -> [Text]
+  wordProduct = liftM2 $ \a b -> a <> " " <> b
 
 
 hasBeenVotedOn :: Post -> Bool
