@@ -20,3 +20,13 @@ To install the ICU library on Windows (necessary for text-icu dependency),
 use Stack's msys & Pacman:
 
     stack exec -- pacman -Sy mingw64/mingw-w64-x86_64-icu
+
+On OS X:
+
+    brew install icu4c
+    # run the first build
+    stack build \
+      --extra-include-dirs=/usr/local/opt/icu4c/include \
+      --extra-lib-dirs=/usr/local/opt/icu4c/lib
+
+On most Linux distros, it should Just Work (tm).
