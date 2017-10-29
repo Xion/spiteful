@@ -6,9 +6,6 @@ module Spiteful.Options
   , commandLine
   , Options(..)
   , toRedditOptions
-  , Feature(..)
-  , Features
-  , defaultFeatures
   ) where
 
 import Control.Applicative ((<$>), liftA2)
@@ -78,50 +75,42 @@ commandLine = info (options <**> helper)
 
 options :: Parser Options
 options = do
-  verbosity' <- verbosity
-  baseUrl <- optional $ option str
+  optVerbosity <- verbosity
+  optBaseURL <- optional $ option str
       ( long "baseUrl" <> metavar "URL"
       <> internal  -- won't show up even when --help is passed
       <> help (Text.unpack $ "Alternate base URL for Reddit API "
                              <> "(default is" <> mainBaseURL <> ")")
       )
 
-  credentials' <- credentials
-  userAgent <- optional $ option str
+  optCredentials <- credentials
+  optUserAgent <- optional $ option str
       ( long "user-agent" <> short 'A'
       <> metavar "USER-AGENT"
       <> help "Custom value for the User-Agent header sent with all requests"
       <> hidden
       )
 
-  features' <- optional $ option features
+  optFeatures <- optional $ option features
       ( long "features" <> short 'f' <> metavar "FEATURE[, FEATURE, [...]]"
       <> help (Text.unpack $ fmt (
           "Comma-separated list of features to enable. "
           <> "Choices include: [{}]. Default: [{}]")
           (csv $ ([minBound..maxBound] :: [Feature]), csv defaultFeatures)))
-  listingType <- optional $ option listing
+  optListing <- optional $ option listing
       ( long "watch" <> short 'w' <> metavar "WHAT"
       <> help (Text.unpack $ "Which listing of Reddit posts to watch: "
                               <> intercalateWithLast " or " ", " listings)
       )
-  batchSize <- optional $ option auto
+  optBatchSize <- optional $ option auto
       ( long "batch" <> short 'b'
       <> metavar "SIZE"
       <> help "How many Reddit posts or comments to fetch in a single request"
       <> hidden
       )
 
-  subreddit' <- subreddit
-  return def { optVerbosity = verbosity'
-             , optBaseURL = baseUrl
-             , optFeatures = features'
-             , optCredentials = credentials'
-             , optSubreddit = subreddit'
-             , optListing = listingType
-             , optUserAgent = userAgent
-             , optBatchSize = batchSize
-             }
+  optSubreddit <- subreddit
+  return Options{..}
   where
   -- TODO: make passing too many --v/--q a parse error
   verbosity :: Parser Int

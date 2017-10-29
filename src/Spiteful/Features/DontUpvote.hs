@@ -2,7 +2,6 @@ module Spiteful.Features.DontUpvote
   ( monitorDontUpvotePosts
   ) where
 
-import Control.Concurrent.MVar
 import Data.Either.Combinators (isRight, whenLeft)
 import Data.Maybe (isJust)
 import Data.Monoid ((<>))

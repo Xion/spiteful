@@ -13,7 +13,7 @@ import System.Exit
 import System.IO
 import System.Signal (installHandler, sigINT)
 
-import Spiteful.Features (Feature(..), defaultFeatures)
+import Spiteful.Features
 import Spiteful.Features.DAE
 import Spiteful.Features.DontUpvote
 import Spiteful.Features.UpvoteIf
