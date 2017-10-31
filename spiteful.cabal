@@ -19,6 +19,7 @@ executable spiteful
   other-modules:       Spiteful.Features
                        , Spiteful.Features.DAE
                        , Spiteful.Features.DontUpvote
+                       , Spiteful.Features.IfThisGetsUpvotes
                        , Spiteful.Features.UpvoteIf
                        , Spiteful.Logging
                        , Spiteful.Metrics

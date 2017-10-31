@@ -16,6 +16,7 @@ import System.Signal (installHandler, sigINT)
 import Spiteful.Features
 import Spiteful.Features.DAE
 import Spiteful.Features.DontUpvote
+import Spiteful.Features.IfThisGetsUpvotes
 import Spiteful.Features.UpvoteIf
 import Spiteful.Logging
 import Spiteful.Metrics
@@ -76,4 +77,5 @@ resolveFeatures = map func . HS.toList
   where
   func FeatureDontUpvote = monitorDontUpvotePosts
   func FeatureUpvoteIf = monitorUpvoteIfPosts
+  func FeatureIfThisGetsUpvotes = monitorIfThisGetsUpvotesPosts
   func FeatureDAE = monitorDAEComments

@@ -40,7 +40,7 @@ isDontUpvotePost Post{..} = any (`Text.isInfixOf` title') phrases
 
   -- | Make a Cartesian product of two word lists.
   wordProduct :: [Text] -> [Text] -> [Text]
-  wordProduct = liftM2 $ \a b -> a <> " " <> b
+  wordProduct = liftM2 $ \a b -> a <> " " <> b  -- liftM2 to the list monad
 
 
 hasBeenVotedOn :: Post -> Bool

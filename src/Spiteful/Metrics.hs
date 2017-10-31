@@ -38,6 +38,10 @@ dontUpvotePostsSeen :: MVar Int
 dontUpvotePostsSeen = unsafePerformIO $ newMVar 0
 {-# NOINLINE dontUpvotePostsSeen #-}
 
+ifThisGetsUpvotesPostsSeen :: MVar Int
+ifThisGetsUpvotesPostsSeen = unsafePerformIO $ newMVar 0
+{-# NOINLINE ifThisGetsUpvotesPostsSeen #-}
+
 daeCommentsSeen :: MVar Int
 daeCommentsSeen = unsafePerformIO $ newMVar 0
 {-# NOINLINE daeCommentsSeen #-}
@@ -56,6 +60,8 @@ printStatistics features = do
   lines <- (concat <$>) . mapM (((sep:) <$>) . stats) $ HS.toList features
   mapM_ Text.putStrLn $ lines <> [sep]
   where
+  -- TODO: don't repeat statistics that are used by multiple features
+
   stats FeatureDontUpvote = do
     postsSeen' <- readMVar postsSeen
     dontUpvotePostsSeen' <- readMVar dontUpvotePostsSeen
@@ -70,6 +76,14 @@ printStatistics features = do
     postsDownvoted' <- readMVar postsDownvoted
     return [ "Total posts seen: " <> tshow postsSeen'
            , "'upvote if' posts seen: " <> tshow upvoteIfPostsSeen'
+           , "Posts downvoted: " <> tshow postsDownvoted'
+           ]
+  stats FeatureIfThisGetsUpvotes = do
+    postsSeen' <- readMVar postsSeen
+    ifThisGetsUpvotesPostsSeen' <- readMVar ifThisGetsUpvotesPostsSeen
+    postsDownvoted' <- readMVar postsDownvoted
+    return [ "Total posts seen: " <> tshow postsSeen'
+           , "'if this gets upvotes' posts seen: " <> tshow ifThisGetsUpvotesPostsSeen'
            , "Posts downvoted: " <> tshow postsDownvoted'
            ]
   stats FeatureDAE = do
