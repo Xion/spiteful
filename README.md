@@ -13,6 +13,12 @@ Currently, it:
   and _specifically upvotes them_
 * looks for new comments that contain "does anyone else?" (or similar)
   and replies with _No._
+* checks for upvote pleas (posts with "pls upvote" or similar)
+  and downvotes them
+* listens for upvote baits (posts with "if this gets X upvotes" or similar)
+  and downvotes them as well!
+
+All those features can be turned on or off via the `--features` flag.
 
 ## Development notes
 

@@ -35,8 +35,9 @@ isUpvoteIfPost :: Post -> Bool
 isUpvoteIfPost Post{..} = any (`Text.isInfixOf` title') phrases
   where
   title' = deburr title
-  phrases = map deburr $ liftM2 ($) [("pls " <>), (<> " if")]
-                                    ["upvote", "upboat"]
+  phrases = map deburr $ liftM2 ($)
+    [("pls " <>), ("plz " <>), ("please " <>), (<> " if")]
+    ["upvote", "upboat", "vote up", "vote this up"]
 
 
 hasBeenVotedOn :: Post -> Bool
