@@ -1,5 +1,6 @@
 {-# LANGUAGE ApplicativeDo #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE StandaloneDeriving #-}
 
 module Spiteful.Options
   ( botVersion
@@ -91,17 +92,8 @@ options = do
       <> hidden
       )
 
-  optFeatures <- optional $ option features
-      ( long "features" <> short 'f' <> metavar "FEATURE[, FEATURE, [...]]"
-      <> help (Text.unpack $ fmt (
-          "Comma-separated list of features to enable. "
-          <> "Choices include: [{}]. Default: [{}]")
-          (csv $ ([minBound..maxBound] :: [Feature]), csv defaultFeatures)))
-  optListing <- optional $ option listing
-      ( long "watch" <> short 'w' <> metavar "WHAT"
-      <> help (Text.unpack $ "Which listing of Reddit posts to watch: "
-                              <> intercalateWithLast " or " ", " listings)
-      )
+  optFeatures <- features
+  optListing <- listing
   optBatchSize <- optional $ option auto
       ( long "batch" <> short 'b'
       <> metavar "SIZE"
@@ -111,50 +103,70 @@ options = do
 
   optSubreddit <- subreddit
   return Options{..}
+
+verbosity :: Parser Int
+verbosity = fromMaybe 0 <$> optional (verbose <|> quiet)
   where
-  verbosity :: Parser Int
-  verbosity = fromMaybe 0 <$> optional (verbose <|> quiet)
-    where
-    verbose = length <$> many (flag' ()
-        (long "verbose" <> short 'v'
-        <> help "Increase the verbosity of logging output"))
-    quiet = length <$> many (flag' ()
-        (long "quiet" <> short 'q'
-        <> help "Decrease the verbosity of logging output"))
+  verbose = length <$> many (flag' ()
+      (long "verbose" <> short 'v'
+      <> help "Increase the verbosity of logging output"))
+  quiet = length <$> many (flag' ()
+      (long "quiet" <> short 'q'
+      <> help "Decrease the verbosity of logging output"))
 
-  credentials :: Parser (Maybe (Text, Text))
-  credentials = do
-    username <- optional $ option str
-        ( long "user" <> short 'u' <> metavar "USERNAME"
-        <> help ("Reddit username to use for the bot. "
-                <> "Pass `-` to read it from stdin.")
-        )
-    password <- optional $ option str
-        ( long "password" <> short 'p' <> metavar "PASSWORD"
-        <> help ("Password to the bot's Reddit account. "
-                <> "Pass `-` to read it from stdin.")
-        )
-    return $ liftA2 (,) username password
+credentials :: Parser (Maybe (Text, Text))
+credentials = do
+  username <- optional $ option str
+      ( long "user" <> short 'u' <> metavar "USERNAME"
+      <> help ("Reddit username to use for the bot. "
+              <> "Pass `-` to read it from stdin.")
+      )
+  password <- optional $ option str
+      ( long "password" <> short 'p' <> metavar "PASSWORD"
+      <> help ("Password to the bot's Reddit account. "
+              <> "Pass `-` to read it from stdin.")
+      )
+  return $ liftA2 (,) username password
 
-  features :: ReadM Features
-  features = maybeReader $ (HS.fromList <$>)
+subreddit :: Parser (Maybe SubredditName)
+subreddit = do
+  subr <- optional $ argument str
+      ( metavar "SUBREDDIT"
+      <> help ("Subreddit to limit the bot to. "
+                  <> "By default, it watches the entire Reddit")
+      )
+  return $ R . stripSlashR <$> subr
+
+features :: Parser (Maybe Features)
+features = optional $ option features'
+    ( long "features" <> short 'f' <> metavar "FEATURE[, FEATURE, [...]]"
+    <> help (Text.unpack $ fmt (
+        "Comma-separated list of features to enable. "
+        <> "Choices include: [{}]. Default: [{}]")
+        (csv ([minBound..maxBound] :: [Feature]), csv defaultFeatures))
+    )
+  where
+  features' :: ReadM Features
+  features' = maybeReader $ (HS.fromList <$>)
     . sequence . map (readMay . Text.unpack . Text.strip)
     . Text.splitOn "," . Text.toLower . Text.pack
 
-  listing :: ReadM ListingType
-  listing =
+listing :: Parser (Maybe ListingType)
+listing = optional $ option listing'
+    ( long "watch" <> short 'w' <> metavar "WHAT"
+    <> help (Text.unpack $ "Which listing of Reddit posts to watch: "
+                            <> intercalateWithLast " or " ", " listings)
+    )
+  where
+  listing' :: ReadM ListingType
+  listing' =
       maybeReader $ readMay . Text.unpack . capitalize . Text.strip . Text.pack
 
-  listings = map (Text.toLower . tshow) [New, Hot, Rising, Controversial]
+  listings = map (Text.toLower . tshow) ([minBound..maxBound] :: [ListingType])
 
-  subreddit :: Parser (Maybe SubredditName)
-  subreddit = do
-    subr <- optional $ argument str
-        ( metavar "SUBREDDIT"
-        <> help ("Subreddit to limit the bot to. "
-                 <> "By default, it watches the entire Reddit")
-        )
-    return $ R . stripSlashR <$> subr
+deriving instance Generic ListingType
+deriving instance Bounded ListingType
+deriving instance Enum ListingType
 
 
 -- Utility functions
