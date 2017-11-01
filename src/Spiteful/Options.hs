@@ -112,7 +112,6 @@ options = do
   optSubreddit <- subreddit
   return Options{..}
   where
-  -- TODO: make passing too many --v/--q a parse error
   verbosity :: Parser Int
   verbosity = fromMaybe 0 <$> optional (verbose <|> quiet)
     where

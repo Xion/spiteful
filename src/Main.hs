@@ -7,6 +7,7 @@ import Control.Monad
 import qualified Data.HashSet as HS
 import Data.Maybe (fromMaybe)
 import Data.Monoid ((<>))
+import Data.Text (Text)
 import qualified Network.HTTP.Client.TLS as TLS
 import Options.Applicative
 import System.Exit
@@ -31,7 +32,7 @@ main = do
     hSetEncoding handle utf8
 
   opts@Options{..} <- parseArgs
-  setLogLevel $ toEnum $ fromEnum defaultLogLevel - optVerbosity
+  setupLogging optVerbosity
 
   let features = fromMaybe defaultFeatures optFeatures
 
@@ -71,6 +72,27 @@ parseArgs = do
   where
   userPrompt = "Reddit username"
   passPrompt = "Reddit password"
+
+
+setupLogging :: Int -> IO ()
+setupLogging verbosity = do
+  let level = defaultLevel - verbosity
+      minLevel = fromEnum (minBound :: LogLevel)
+      maxLevel = fromEnum (maxBound :: LogLevel)
+      defaultLevel = fromEnum defaultLogLevel
+
+  when (not $ level >= minLevel && level <= maxLevel) $ do
+    let flag :: Text
+        maxFlagCount :: Int
+        (flag, maxFlagCount) = if verbosity > 0
+                               then ("-v", defaultLevel - minLevel)
+                               else ("-q", maxLevel - defaultLevel)
+    logFmt Error "The {} flag has been passed too many times ({} > {})"
+                 (flag, verbosity, maxFlagCount)
+    exitWith $ ExitFailure 2
+
+  setLogLevel $ toEnum level
+
 
 resolveFeatures :: Features -> [Options -> IO ()]
 resolveFeatures = map func . HS.toList
