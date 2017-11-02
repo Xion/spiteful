@@ -3,7 +3,7 @@ module Spiteful.Features.IfThisGetsUpvotes
   ) where
 
 import Data.Either.Combinators (isRight, whenLeft)
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, isNothing)
 import Data.Monoid ((<>))
 import qualified Data.Text as Text
 import Pipes
@@ -23,7 +23,7 @@ monitorIfThisGetsUpvotesPosts opts = do
   result <- runEffect $
     fetchPosts opts >-> countAs postsSeen
     >-> P.filter isIfThisGetsUpvotesPost >-> countAs ifThisGetsUpvotesPostsSeen
-    >-> P.filter (not . hasBeenVotedOn)
+    >-> P.filter (isNothing . liked)
     >-> P.mapM (downvotePost opts)
                 >-> P.filter isRight >-> countAs postsDownvoted
     >-> P.drain
@@ -36,13 +36,10 @@ isIfThisGetsUpvotesPost Post{..} =
   any isJust . map (`matchRegex` titleString) $ phrases
   where
   titleString = Text.unpack $ deburr title
-  phrases = map (mkRegex' . Text.unpack . collapseWhitespace)
-      [ "if this gets \\d+ upvotes" ]
+  phrases = map (mkRegex' . Text.unpack . regexizeSpaces . collapseWhitespace)
+      [ "if this(\\s+post)? gets? \\d+ upvotes" ]
+  regexizeSpaces = Text.replace " " "\\s+"
   mkRegex' r = mkRegexWithOpts r singleLine caseSensitive
     where
     singleLine = True  -- ^ and $ match beginning/end of the line
     caseSensitive = False
-
-
-hasBeenVotedOn :: Post -> Bool
-hasBeenVotedOn = isJust . liked

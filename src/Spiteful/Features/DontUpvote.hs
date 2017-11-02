@@ -4,7 +4,7 @@ module Spiteful.Features.DontUpvote
 
 import Control.Monad
 import Data.Either.Combinators (isRight, whenLeft)
-import Data.Maybe (isJust)
+import Data.Maybe (isNothing)
 import Data.Monoid ((<>))
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -24,7 +24,7 @@ monitorDontUpvotePosts opts = do
   result <- runEffect $
     fetchPosts opts >-> countAs postsSeen
     >-> P.filter isDontUpvotePost >-> countAs dontUpvotePostsSeen
-    >-> P.filter (not . hasBeenVotedOn)
+    >-> P.filter (isNothing . liked)
     >-> P.mapM (upvotePost opts) >-> P.filter isRight >-> countAs postsUpvoted
     >-> P.drain -- drop upvote outcomes but retain a possible fetch error
   whenLeft result $ \err ->
@@ -41,7 +41,3 @@ isDontUpvotePost Post{..} = any (`Text.isInfixOf` title') phrases
   -- | Make a Cartesian product of two word lists.
   wordProduct :: [Text] -> [Text] -> [Text]
   wordProduct = liftM2 $ \a b -> a <> " " <> b  -- liftM2 to the list monad
-
-
-hasBeenVotedOn :: Post -> Bool
-hasBeenVotedOn = isJust . liked

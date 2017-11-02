@@ -40,7 +40,7 @@ collapseWhitespace :: Text -> Text
 collapseWhitespace = Text.unwords . Text.words
 
 
-data Echo = EchoOn | EchoOff deriving (Eq)
+data Echo = EchoOn | EchoOff deriving (Bounded, Enum, Eq)
 
 -- | Ask for a line of text, optionally with terminal echo disabled.
 -- Based on https://stackoverflow.com/a/4064482.
