@@ -8,6 +8,7 @@ import qualified Data.HashSet as HS
 import Data.Maybe (fromMaybe)
 import Data.Monoid ((<>))
 import Data.Text (Text)
+import qualified Data.Text.IO as Text
 import qualified Network.HTTP.Client.TLS as TLS
 import Options.Applicative
 import System.Exit
@@ -31,7 +32,21 @@ main = do
     hSetBuffering handle NoBuffering
     hSetEncoding handle utf8
 
-  opts@Options{..} <- parseArgs
+  command <- execParser commandLine
+  case command of
+    PrintVersion -> printVersion >> return ()
+    RunBot opts -> run opts
+
+
+printVersion :: IO void
+printVersion = do
+  Text.putStrLn $ "spiteful-bot " <> botVersion
+  exitWith ExitSuccess
+
+
+run :: Options -> IO ()
+run opts = do
+  opts'@Options{..} <- fixCredentials opts
   setupLogging optVerbosity
 
   let features = fromMaybe defaultFeatures optFeatures
@@ -43,7 +58,7 @@ main = do
     throwTo tid ExitSuccess
 
   logAt Info $ "spiteful-bot v" <> botVersion
-  logAt Debug $ "Command line options: " <> tshow opts
+  logAt Debug $ "Command line options: " <> tshow opts'
 
   TLS.setGlobalManager =<< TLS.newTlsManager
 
@@ -51,11 +66,8 @@ main = do
   let workerFuncs = resolveFeatures features
   mapConcurrently_ ($ opts) workerFuncs
 
-
-parseArgs :: IO Options
-parseArgs = do
-  opts <- execParser commandLine
-
+fixCredentials :: Options -> IO Options
+fixCredentials opts =
   -- Handle possible "-" value being passed to --user or --password
   case optCredentials opts of
     Just ("-", "-") -> do

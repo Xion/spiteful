@@ -4,6 +4,7 @@
 
 module Spiteful.Options
   ( botVersion
+  , Command(..)
   , commandLine
   , Options(..)
   , toRedditOptions
@@ -66,16 +67,31 @@ toRedditOptions Options{..} = RedditOptions
 
 -- Parsing command line options
 
-commandLine :: ParserInfo Options
-commandLine = info (options <**> helper)
+data Command = RunBot Options | PrintVersion
+               deriving (Show)
+
+instance Default Command where
+  def = RunBot def
+
+commandLine :: ParserInfo Command
+commandLine = info (command <**> helper)
   ( fullDesc
   <> progDesc "Run the Spiteful reddit bot"
   <> header "Spiteful reddit bot"
   <> failureCode 2
   )
+  where
+  command = RunBot <$> runBot <|> PrintVersion <$ printVersion
 
-options :: Parser Options
-options = do
+printVersion :: Parser ()
+printVersion = flag' ()
+    ( long "version" <> short 'V'
+    <> help "Print the program version and quit"
+    <> hidden
+    )
+
+runBot :: Parser Options
+runBot = do
   optVerbosity <- verbosity
   optBaseURL <- optional $ option str
       ( long "baseUrl" <> metavar "URL"
