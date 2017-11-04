@@ -14,6 +14,7 @@ import Data.Text.ICU.Normalize
 import qualified Data.Text.IO as Text
 import qualified Data.Text.Lazy as Text (toStrict)
 import System.IO
+import Text.LineBreak
 
 
 -- | Apply a function to a value in double-nested functors (e.g. IO (Maybe a)).
@@ -43,6 +44,13 @@ stripAccents = Text.filter (not . property Diacritic) . normalize NFD
 
 collapseWhitespace :: Text -> Text
 collapseWhitespace = Text.unwords . Text.words
+
+-- | Break text into lines of at most given length.
+breakLines :: Int -> Text -> [Text]
+breakLines maxCol = map Text.pack . breakStringLn bf . Text.unpack
+  where
+  bf = BreakFormat maxCol tabWidth '\0' Nothing
+  tabWidth = 4
 
 
 data Echo = EchoOn | EchoOff deriving (Bounded, Enum, Eq)

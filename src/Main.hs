@@ -1,5 +1,6 @@
 module Main where
 
+import Control.Arrow ((&&&))
 import Control.Concurrent (myThreadId)
 import Control.Concurrent.Async
 import Control.Exception (throwTo)
@@ -47,8 +48,7 @@ printVersion = Text.putStrLn $ "spiteful-bot " <> botVersion
 
 
 showFeatures :: IO ()
-showFeatures =
-  printDefinitionList $ zip (map tshow features) (map F.describe features)
+showFeatures = printDefinitionList $ map (tshow &&& F.describe) features
   where
   features = [minBound..maxBound] :: [Feature]
 
@@ -61,8 +61,7 @@ showFeatures =
       Text.putStrLn ""
       mapM_ Text.putStrLn $
         map (Text.replicate indent " " <>) $
-          -- TODO: break on words
-          Text.chunksOf (maxWidth - indent) definition
+          breakLines (maxWidth - indent) definition
       Text.putStrLn ""
 
 

@@ -35,6 +35,7 @@ executable spiteful
                        , either >= 4.4
                        , hashable >= 1.2.6.1
                        , http-client-tls
+                       , linebreak >= 1.0.0
                        , optparse-applicative >= 0.14
                        , pipes
                        , random >= 1.1
