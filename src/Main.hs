@@ -8,14 +8,17 @@ import qualified Data.HashSet as HS
 import Data.Maybe (fromMaybe)
 import Data.Monoid ((<>))
 import Data.Text (Text)
+import qualified Data.Text as Text
 import qualified Data.Text.IO as Text
 import qualified Network.HTTP.Client.TLS as TLS
 import Options.Applicative
+import qualified System.Console.Terminal.Size as Term
 import System.Exit
 import System.IO
 import System.Signal (installHandler, sigINT)
 
-import Spiteful.Features
+import Spiteful.Features hiding (describe)
+import qualified Spiteful.Features as F
 import Spiteful.Features.DAE
 import Spiteful.Features.DontUpvote
 import Spiteful.Features.IfThisGetsUpvotes
@@ -34,14 +37,33 @@ main = do
 
   command <- execParser commandLine
   case command of
-    PrintVersion -> printVersion >> return ()
+    PrintVersion -> printVersion
+    ShowFeatures -> showFeatures
     RunBot opts -> run opts
 
 
-printVersion :: IO void
-printVersion = do
-  Text.putStrLn $ "spiteful-bot " <> botVersion
-  exitWith ExitSuccess
+printVersion :: IO ()
+printVersion = Text.putStrLn $ "spiteful-bot " <> botVersion
+
+
+showFeatures :: IO ()
+showFeatures =
+  printDefinitionList $ zip (map tshow features) (map F.describe features)
+  where
+  features = [minBound..maxBound] :: [Feature]
+
+  printDefinitionList :: [(Text, Text)] -> IO ()
+  printDefinitionList list = do
+    let indent = 4
+    maxWidth <- fromMaybe 80 <$> Term.width <$$> Term.size
+    forM_ list $ \(term, definition) -> do
+      Text.putStrLn $ Text.take maxWidth term
+      Text.putStrLn ""
+      mapM_ Text.putStrLn $
+        map (Text.replicate indent " " <>) $
+          -- TODO: break on words
+          Text.chunksOf (maxWidth - indent) definition
+      Text.putStrLn ""
 
 
 run :: Options -> IO ()

@@ -67,7 +67,7 @@ toRedditOptions Options{..} = RedditOptions
 
 -- Parsing command line options
 
-data Command = RunBot Options | PrintVersion
+data Command = RunBot Options | ShowFeatures | PrintVersion
                deriving (Show)
 
 instance Default Command where
@@ -81,12 +81,21 @@ commandLine = info (command <**> helper)
   <> failureCode 2
   )
   where
-  command = RunBot <$> runBot <|> PrintVersion <$ printVersion
+  command = RunBot <$> runBot
+            <|> ShowFeatures <$ showFeatures
+            <|> PrintVersion <$ printVersion
 
 printVersion :: Parser ()
 printVersion = flag' ()
     ( long "version" <> short 'V'
     <> help "Print the program version and quit"
+    <> hidden
+    )
+
+showFeatures :: Parser ()
+showFeatures = flag' ()
+    ( long "show-features"
+    <> help "Show a short description of supported bot features"
     <> hidden
     )
 

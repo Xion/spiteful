@@ -16,6 +16,11 @@ import qualified Data.Text.Lazy as Text (toStrict)
 import System.IO
 
 
+-- | Apply a function to a value in double-nested functors (e.g. IO (Maybe a)).
+(<$$>) :: (Functor f, Functor g) => (a -> b) -> g (f a) -> g (f b)
+(<$$>) = fmap . fmap
+infixr 8 <$$>
+
 tshow :: Show a => a -> Text
 tshow = Text.pack . show
 

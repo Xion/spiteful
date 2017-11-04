@@ -1,7 +1,9 @@
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Spiteful.Features
   ( Feature(..)
+  , describe
   , Features
   , defaultFeatures
   ) where
@@ -9,6 +11,8 @@ module Spiteful.Features
 import Data.Hashable (Hashable)
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as HS
+import Data.Monoid ((<>))
+import Data.Text (Text)
 import GHC.Generics (Generic)
 
 
@@ -26,6 +30,24 @@ instance Show Feature where
   show FeatureUpvoteIf = "upvote-if"
   show FeatureIfThisGetsUpvotes = "if-this-gets-upvotes"
   show FeatureDAE = "dae"
+
+-- | User-friendly explanation of what a particular feature does.
+describe :: Feature -> Text
+describe = \case
+  FeatureDontUpvote ->
+    "Look for Reddit posts that have \"don't upvote\" or similar phrases "
+    <> "in their titles, and specifically upvote them."
+  FeatureUpvoteIf ->
+    "Look for Reddit posts that are upvote pleas or generic polls -- "
+    <> "based on whether they contain a phrase like \"upvote if\" in the title "
+    <> "-- and downvote them."
+  FeatureIfThisGetsUpvotes ->
+    "Look for Reddit posts that are upvote baits "
+    <> "(containing \"if this gets N upvotes\" or a similar phrase) "
+    <> "and downvote them."
+  FeatureDAE ->
+    "Look for Reddit comments that ask \"does anyone else\" (dae) "
+    <> "and reply with some variant of \"No.\"."
 
 
 type Features = HashSet Feature
