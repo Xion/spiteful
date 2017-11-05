@@ -1,11 +1,18 @@
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TypeApplications #-}
+
 module Spiteful.Metrics where
 
 import Control.Concurrent.MVar
 import Control.Monad.IO.Class
+import Data.ByteString (ByteString)
 import qualified Data.HashSet as HS
 import Data.Monoid ((<>))
+import Data.Text (Text)
 import qualified Data.Text as Text
+import qualified Data.Text.Encoding as Text
 import qualified Data.Text.IO as Text
+import Network.HTTP.Server
 import Pipes
 import qualified Pipes.Prelude as P
 import System.IO.Unsafe (unsafePerformIO)
@@ -53,46 +60,74 @@ upvoteIfPostsSeen = unsafePerformIO $ newMVar 0
 
 -- | Pipe that counts all passing elements and stores the total in given MVar.
 countAs :: (MonadIO m, Num n) => MVar n -> Pipe a a m r
-countAs mvar = P.chain $ \_ -> liftIO $ modifyMVar_ mvar (return . (+1))
+countAs mvar = P.chain $ \_ -> liftIO $ do
+  -- Can't use modifyMVar_ because it doesn't guarantee atomicity
+  -- when there are multiple readers/writers.
+  count <- takeMVar mvar
+  putMVar mvar $ count + 1
 
+
+-- | Print statistics to stdout.
 printStatistics :: Features -> IO ()
-printStatistics features = do
-  lines <- (concat <$>) . mapM (((sep:) <$>) . stats) $ HS.toList features
-  mapM_ Text.putStrLn $ lines <> [sep]
+printStatistics features =
+  mapM_ Text.putStrLn =<< formatStatistics joinKV sep features
   where
-  -- TODO: don't repeat statistics that are used by multiple features
+  joinKV (k, v) = k <> ": " <> v
+  sep = Text.replicate 20 "-"
 
-  stats FeatureDontUpvote = do
+-- | Serve statistics as an HTTP response.
+serveStatistics :: Features -> IO (Response ByteString)
+serveStatistics features = do
+  stats <- Text.unlines <$> formatStatistics joinKV sep features
+  let body = preamble <> stats <> postamble
+  return $ (respond @ByteString OK) { rspBody = Text.encodeUtf8 body }
+  where
+  joinKV (k, v) = "<li><strong>" <> k <> ":</strong> " <> v <> "</li>"
+  sep = "</ul><ul>"
+  preamble = "<html><body><ul>"
+  postamble = "</ul></body></html>"
+
+formatStatistics :: ((Text, Text) -> Text) -> Text -> Features -> IO [Text]
+formatStatistics formatKV sep features = do
+  let fs = HS.toList features
+  if null fs then return []
+  else do
+    lines <- (concat . ([sep]:) . map (map formatKV)) <$> mapM getStatistics fs
+    return $ lines <> [sep]
+
+-- TODO: don't repeat statistics that are used by multiple features
+getStatistics :: Feature -> IO [(Text, Text)]
+getStatistics = \case
+  FeatureDontUpvote -> do
     postsSeen' <- readMVar postsSeen
     dontUpvotePostsSeen' <- readMVar dontUpvotePostsSeen
     postsUpvoted' <- readMVar postsUpvoted
-    return [ "Total posts seen: " <> tshow postsSeen'
-           , "'dont upvote' posts seen: " <> tshow dontUpvotePostsSeen'
-           , "Posts upvoted: " <> tshow postsUpvoted'
+    return [ ("Total posts seen", tshow postsSeen')
+           , ("'dont upvote' posts seen", tshow dontUpvotePostsSeen')
+           , ("Posts upvoted", tshow postsUpvoted')
            ]
-  stats FeatureUpvoteIf = do
+  FeatureUpvoteIf -> do
     postsSeen' <- readMVar postsSeen
     upvoteIfPostsSeen' <- readMVar upvoteIfPostsSeen
     postsDownvoted' <- readMVar postsDownvoted
-    return [ "Total posts seen: " <> tshow postsSeen'
-           , "'upvote if' posts seen: " <> tshow upvoteIfPostsSeen'
-           , "Posts downvoted: " <> tshow postsDownvoted'
+    return [ ("Total posts seen", tshow postsSeen')
+           , ("'upvote if' posts seen", tshow upvoteIfPostsSeen')
+           , ("Posts downvoted", tshow postsDownvoted')
            ]
-  stats FeatureIfThisGetsUpvotes = do
+  FeatureIfThisGetsUpvotes -> do
     postsSeen' <- readMVar postsSeen
     ifThisGetsUpvotesPostsSeen' <- readMVar ifThisGetsUpvotesPostsSeen
     postsDownvoted' <- readMVar postsDownvoted
-    return [ "Total posts seen: " <> tshow postsSeen'
-           , "'if this gets upvotes' posts seen: " <> tshow ifThisGetsUpvotesPostsSeen'
-           , "Posts downvoted: " <> tshow postsDownvoted'
+    return [ ("Total posts seen", tshow postsSeen')
+           , ("'if this gets upvotes' posts seen"
+             , tshow ifThisGetsUpvotesPostsSeen')
+           , ("Posts downvoted", tshow postsDownvoted')
            ]
-  stats FeatureDAE = do
+  FeatureDAE -> do
     commentsSeen' <- readMVar commentsSeen
     daeCommentsSeen' <- readMVar daeCommentsSeen
     commentsRepliedTo' <- readMVar commentsRepliedTo
-    return [ "Total comments seen: " <> tshow commentsSeen'
-           , "DAE comments seen: " <> tshow daeCommentsSeen'
-           , "Comments replied to: " <> tshow commentsRepliedTo'
+    return [ ("Total comments seen", tshow commentsSeen')
+           , ("DAE comments seen", tshow daeCommentsSeen')
+           , ("Comments replied to", tshow commentsRepliedTo')
            ]
-
-  sep = Text.replicate 20 "-"

@@ -31,6 +31,7 @@ executable spiteful
                       , RecordWildCards
   build-depends:       async >= 2.1.1
                        , base >= 4.7 && < 5
+                       , bytestring >= 0.10
                        , data-default >= 0.7
                        , either >= 4.4
                        , extra >= 1.5
@@ -56,4 +57,5 @@ executable spiteful
                        -fwarn-incomplete-patterns
                        -fwarn-unused-imports
                        -fwarn-missing-signatures
+                       -threaded
                        -O2

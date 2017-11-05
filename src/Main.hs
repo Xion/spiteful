@@ -91,7 +91,8 @@ run opts = do
   logAt Debug $ "Command line options: " <> tshow opts'
 
   TLS.setGlobalManager =<< TLS.newTlsManager
-  whenJust optDebugPort startDebugServer
+  whenJust optDebugPort $ \port ->
+    startDebugServer port features
 
   let workerFuncs = resolveFeatures features
   mapConcurrently_ ($ opts) workerFuncs
@@ -135,15 +136,13 @@ setupLogging verbosity = do
 
   setLogLevel $ toEnum level
 
-startDebugServer :: PortNumber -> IO ()
-startDebugServer port = do
+startDebugServer :: PortNumber -> Features -> IO ()
+startDebugServer port features = do
   let host = "127.0.0.1"
   let config = Config quietLogger host port
   void $ forkIO $ do
     logFmt Info "Debug server running at {}:{}" (host, tshow port)
-    serverWith @String config $ \_ _ _ ->
-      -- TODO: display the statistics
-      return $ (respond @String OK) { rspBody = "Hello World" }
+    serverWith config $ \_ _ _ -> serveStatistics features
 
 
 resolveFeatures :: Features -> [Options -> IO ()]
