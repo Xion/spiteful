@@ -59,7 +59,7 @@ fetchPosts opts@Options{..} = do
           --  i.e. completely new posts)
           delaySecs <- case after' of
             Just _ -> do
-              logAt Trace "Sleeping for a second before continuing with fetch"
+              logAt Trace "Sleeping shortly before continuing with fetch"
               return 1
             Nothing -> do
               logFmt Debug

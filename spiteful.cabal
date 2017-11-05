@@ -48,6 +48,7 @@ executable spiteful
                        , signal >= 0.1
                        , safe >= 0.3
                        , split >= 0.2
+                       , stm >= 2.4.4
                        , terminal-size >= 0.3.2
                        , text >= 1.2
                        , text-format >= 0.3.1
@@ -57,5 +58,4 @@ executable spiteful
                        -fwarn-incomplete-patterns
                        -fwarn-unused-imports
                        -fwarn-missing-signatures
-                       -threaded
                        -O2

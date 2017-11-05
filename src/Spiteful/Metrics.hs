@@ -3,7 +3,7 @@
 
 module Spiteful.Metrics where
 
-import Control.Concurrent.MVar
+import Control.Concurrent.STM
 import Control.Monad.IO.Class
 import Data.ByteString (ByteString)
 import qualified Data.HashSet as HS
@@ -21,50 +21,46 @@ import Spiteful.Features
 import Spiteful.Util (tshow)
 
 
-postsSeen :: MVar Int
-postsSeen = unsafePerformIO $ newMVar 0
+postsSeen :: TVar Int
+postsSeen = unsafePerformIO $ newTVarIO 0
 {-# NOINLINE postsSeen #-}
 
-postsUpvoted :: MVar Int
-postsUpvoted = unsafePerformIO $ newMVar 0
+postsUpvoted :: TVar Int
+postsUpvoted = unsafePerformIO $ newTVarIO 0
 {-# NOINLINE postsUpvoted #-}
 
-postsDownvoted :: MVar Int
-postsDownvoted = unsafePerformIO $ newMVar 0
+postsDownvoted :: TVar Int
+postsDownvoted = unsafePerformIO $ newTVarIO 0
 {-# NOINLINE postsDownvoted #-}
 
-commentsSeen :: MVar Int
-commentsSeen = unsafePerformIO $ newMVar 0
+commentsSeen :: TVar Int
+commentsSeen = unsafePerformIO $ newTVarIO 0
 {-# NOINLINE commentsSeen #-}
 
-commentsRepliedTo :: MVar Int
-commentsRepliedTo = unsafePerformIO $ newMVar 0
+commentsRepliedTo :: TVar Int
+commentsRepliedTo = unsafePerformIO $ newTVarIO 0
 {-# NOINLINE commentsRepliedTo #-}
 
-dontUpvotePostsSeen :: MVar Int
-dontUpvotePostsSeen = unsafePerformIO $ newMVar 0
+dontUpvotePostsSeen :: TVar Int
+dontUpvotePostsSeen = unsafePerformIO $ newTVarIO 0
 {-# NOINLINE dontUpvotePostsSeen #-}
 
-ifThisGetsUpvotesPostsSeen :: MVar Int
-ifThisGetsUpvotesPostsSeen = unsafePerformIO $ newMVar 0
+ifThisGetsUpvotesPostsSeen :: TVar Int
+ifThisGetsUpvotesPostsSeen = unsafePerformIO $ newTVarIO 0
 {-# NOINLINE ifThisGetsUpvotesPostsSeen #-}
 
-daeCommentsSeen :: MVar Int
-daeCommentsSeen = unsafePerformIO $ newMVar 0
+daeCommentsSeen :: TVar Int
+daeCommentsSeen = unsafePerformIO $ newTVarIO 0
 {-# NOINLINE daeCommentsSeen #-}
 
-upvoteIfPostsSeen :: MVar Int
-upvoteIfPostsSeen = unsafePerformIO $ newMVar 0
+upvoteIfPostsSeen :: TVar Int
+upvoteIfPostsSeen = unsafePerformIO $ newTVarIO 0
 {-# NOINLINE upvoteIfPostsSeen #-}
 
 
--- | Pipe that counts all passing elements and stores the total in given MVar.
-countAs :: (MonadIO m, Num n) => MVar n -> Pipe a a m r
-countAs mvar = P.chain $ \_ -> liftIO $ do
-  -- Can't use modifyMVar_ because it doesn't guarantee atomicity
-  -- when there are multiple readers/writers.
-  count <- takeMVar mvar
-  putMVar mvar $ count + 1
+-- | Pipe that counts all passing elements and stores the total in given TVar.
+countAs :: (MonadIO m, Num n) => TVar n -> Pipe a a m r
+countAs tvar = P.chain $ \_ -> liftIO $ atomically $ modifyTVar' tvar (+1)
 
 
 -- | Print statistics to stdout.
@@ -92,41 +88,42 @@ formatStatistics formatKV sep features = do
   let fs = HS.toList features
   if null fs then return []
   else do
-    lines <- (concat . ([sep]:) . map (map formatKV)) <$> mapM getStatistics fs
+    lines <- (concat . ([sep]:) . map (map formatKV)) <$>
+             atomically (mapM getStatistics fs)
     return $ lines <> [sep]
 
 -- TODO: don't repeat statistics that are used by multiple features
-getStatistics :: Feature -> IO [(Text, Text)]
+getStatistics :: Feature -> STM [(Text, Text)]
 getStatistics = \case
   FeatureDontUpvote -> do
-    postsSeen' <- readMVar postsSeen
-    dontUpvotePostsSeen' <- readMVar dontUpvotePostsSeen
-    postsUpvoted' <- readMVar postsUpvoted
+    postsSeen' <- readTVar postsSeen
+    dontUpvotePostsSeen' <- readTVar dontUpvotePostsSeen
+    postsUpvoted' <- readTVar postsUpvoted
     return [ ("Total posts seen", tshow postsSeen')
            , ("'dont upvote' posts seen", tshow dontUpvotePostsSeen')
            , ("Posts upvoted", tshow postsUpvoted')
            ]
   FeatureUpvoteIf -> do
-    postsSeen' <- readMVar postsSeen
-    upvoteIfPostsSeen' <- readMVar upvoteIfPostsSeen
-    postsDownvoted' <- readMVar postsDownvoted
+    postsSeen' <- readTVar postsSeen
+    upvoteIfPostsSeen' <- readTVar upvoteIfPostsSeen
+    postsDownvoted' <- readTVar postsDownvoted
     return [ ("Total posts seen", tshow postsSeen')
            , ("'upvote if' posts seen", tshow upvoteIfPostsSeen')
            , ("Posts downvoted", tshow postsDownvoted')
            ]
   FeatureIfThisGetsUpvotes -> do
-    postsSeen' <- readMVar postsSeen
-    ifThisGetsUpvotesPostsSeen' <- readMVar ifThisGetsUpvotesPostsSeen
-    postsDownvoted' <- readMVar postsDownvoted
+    postsSeen' <- readTVar postsSeen
+    ifThisGetsUpvotesPostsSeen' <- readTVar ifThisGetsUpvotesPostsSeen
+    postsDownvoted' <- readTVar postsDownvoted
     return [ ("Total posts seen", tshow postsSeen')
            , ("'if this gets upvotes' posts seen"
              , tshow ifThisGetsUpvotesPostsSeen')
            , ("Posts downvoted", tshow postsDownvoted')
            ]
   FeatureDAE -> do
-    commentsSeen' <- readMVar commentsSeen
-    daeCommentsSeen' <- readMVar daeCommentsSeen
-    commentsRepliedTo' <- readMVar commentsRepliedTo
+    commentsSeen' <- readTVar commentsSeen
+    daeCommentsSeen' <- readTVar daeCommentsSeen
+    commentsRepliedTo' <- readTVar commentsRepliedTo
     return [ ("Total comments seen", tshow commentsSeen')
            , ("DAE comments seen", tshow daeCommentsSeen')
            , ("Comments replied to", tshow commentsRepliedTo')
