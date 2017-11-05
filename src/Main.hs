@@ -1,10 +1,13 @@
+{-# LANGUAGE TypeApplications #-}
+
 module Main where
 
 import Control.Arrow ((&&&))
-import Control.Concurrent (myThreadId)
+import Control.Concurrent (forkIO, myThreadId)
 import Control.Concurrent.Async
 import Control.Exception (throwTo)
 import Control.Monad
+import Control.Monad.Extra (whenJust)
 import qualified Data.HashSet as HS
 import Data.Maybe (fromMaybe)
 import Data.Monoid ((<>))
@@ -12,6 +15,9 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as Text
 import qualified Network.HTTP.Client.TLS as TLS
+import Network.HTTP.Server
+import Network.HTTP.Server.Logger (quietLogger)
+import Network.Socket (PortNumber)
 import Options.Applicative
 import qualified System.Console.Terminal.Size as Term
 import System.Exit
@@ -71,10 +77,13 @@ run opts = do
   setupLogging optVerbosity
 
   let features = fromMaybe defaultFeatures optFeatures
+  if null features then do
+    logAt Info "No features selected, exiting."
+    exitWith ExitSuccess
+  else logAt Info $ "Features: " <> csv features
 
   tid <- myThreadId
   installHandler sigINT $ \_ -> do
-    -- TODO: some way of printing statistics w/o closing the program
     printStatistics features
     throwTo tid ExitSuccess
 
@@ -82,8 +91,8 @@ run opts = do
   logAt Debug $ "Command line options: " <> tshow opts'
 
   TLS.setGlobalManager =<< TLS.newTlsManager
+  whenJust optDebugPort startDebugServer
 
-  logAt Info $ "Features: " <> csv features
   let workerFuncs = resolveFeatures features
   mapConcurrently_ ($ opts) workerFuncs
 
@@ -125,6 +134,16 @@ setupLogging verbosity = do
     exitWith $ ExitFailure 2
 
   setLogLevel $ toEnum level
+
+startDebugServer :: PortNumber -> IO ()
+startDebugServer port = do
+  let host = "127.0.0.1"
+  let config = Config quietLogger host port
+  void $ forkIO $ do
+    logFmt Info "Debug server running at {}:{}" (host, tshow port)
+    serverWith @String config $ \_ _ _ ->
+      -- TODO: display the statistics
+      return $ (respond @String OK) { rspBody = "Hello World" }
 
 
 resolveFeatures :: Features -> [Options -> IO ()]

@@ -33,9 +33,12 @@ executable spiteful
                        , base >= 4.7 && < 5
                        , data-default >= 0.7
                        , either >= 4.4
+                       , extra >= 1.5
                        , hashable >= 1.2.6.1
                        , http-client-tls
+                       , http-server >= 1.0.6
                        , linebreak >= 1.0.0
+                       , network >= 2.6.3
                        , optparse-applicative >= 0.14
                        , pipes
                        , random >= 1.1
