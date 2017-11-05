@@ -14,7 +14,6 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
 import qualified Data.Text.IO as Text
-import Network.HTTP.Server
 import Pipes
 import qualified Pipes.Prelude as P
 import System.IO.Unsafe (unsafePerformIO)
@@ -103,12 +102,12 @@ printStatistics features =
   joinKV (k, v) = k <> ": " <> tshow v
   sep = Text.replicate 20 "-"
 
--- | Serve statistics as an HTTP response.
-serveStatistics :: Features -> IO (Response ByteString)
+-- | Serve statistics as an HTTP response body.
+serveStatistics :: Features -> IO ByteString
 serveStatistics features = do
   stats <- Text.unlines <$> formatStatistics joinKV sep features
   let body = preamble <> stats <> postamble
-  return $ (respond @ByteString OK) { rspBody = Text.encodeUtf8 body }
+  return $ Text.encodeUtf8 body
   where
   joinKV (k, v) = "<li><strong>" <> k <> ":</strong> " <> tshow v <> "</li>"
   sep = "</ul><ul>"
@@ -120,12 +119,11 @@ formatStatistics formatKV sep features = do
   let fs = HS.toList features
   if null fs then return []
   else do
-    lines <- (concat . ([sep]:) . map (map formatKV)) <$>
-             atomically (mapM getStatistics fs)
+    lines <- (concat . ([sep]:) . map (map formatKV)) <$> mapM getStatistics fs
     return $ lines <> [sep]
 
 -- TODO: don't repeat statistics that are used by multiple features
-getStatistics :: Feature -> STM [(Label, Int)]
+getStatistics :: Feature -> IO [(Label, Int)]
 getStatistics f = readMetrics $ case f of
   FeatureDontUpvote -> [postsSeen, dontUpvotePostsSeen, postsUpvoted]
   FeatureUpvoteIf -> [postsSeen, upvoteIfPostsSeen, postsDownvoted]
@@ -133,5 +131,5 @@ getStatistics f = readMetrics $ case f of
     [postsSeen, ifThisGetsUpvotesPostsSeen, postsDownvoted]
   FeatureDAE -> [commentsSeen, daeCommentsSeen, commentsRepliedTo]
   where
-  readMetrics :: [Metric a] -> STM [(Label, a)]
-  readMetrics = mapM $ \m@Metric{..} -> (metLabel,) <$> readMetric m
+  readMetrics :: [Metric a] -> IO [(Label, a)]
+  readMetrics = mapM $ \m@Metric{..} -> (metLabel,) <$> readMetricIO m

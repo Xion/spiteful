@@ -20,8 +20,8 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
 import Data.Version (showVersion)
+import Data.Word (Word16)
 import GHC.Generics (Generic)
-import Network.Socket (PortNumber(..))
 import Options.Applicative
 import Reddit hiding (Options)
 import Reddit.Types.Listing
@@ -44,7 +44,7 @@ botVersion = Text.pack $ showVersion version
 -- Fields that have Nothing should be defaulted on upon use.
 data Options = Options
   { optVerbosity :: Int  -- ^ How many times the -v flag was passed
-  , optDebugPort :: Maybe PortNumber
+  , optDebugPort :: Maybe Word16
   , optBaseURL :: Maybe Text  -- ^ Alt. base URL for Reddit API (for testing)
   , optFeatures :: Maybe Features  -- ^ What features should be enabled
   , optCredentials :: Maybe (Text, Text)
@@ -142,8 +142,8 @@ verbosity = fromMaybe 0 <$> optional (verbose <|> quiet)
       (long "quiet" <> short 'q'
       <> help "Decrease the verbosity of logging output"))
 
-debugPort :: Parser (Maybe PortNumber)
-debugPort = optional $ fromIntegral <$> option auto
+debugPort :: Parser (Maybe Word16)
+debugPort = optional $ option auto
     ( long "debug-port" <> metavar "PORT"
     <> help "Port number for the optional debug HTTP server"
     <> hidden

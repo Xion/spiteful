@@ -8,16 +8,18 @@ import Control.Concurrent.Async
 import Control.Exception (throwTo)
 import Control.Monad
 import Control.Monad.Extra (whenJust)
+import qualified Data.ByteString.Lazy as LBS
 import qualified Data.HashSet as HS
 import Data.Maybe (fromMaybe)
 import Data.Monoid ((<>))
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as Text
+import Data.Word (Word16)
 import qualified Network.HTTP.Client.TLS as TLS
-import Network.HTTP.Server
-import Network.HTTP.Server.Logger (quietLogger)
-import Network.Socket (PortNumber)
+import Network.HTTP.Types (status200, status404)
+import qualified Network.Wai as W
+import qualified Network.Wai.Handler.Warp as W
 import Options.Applicative
 import qualified System.Console.Terminal.Size as Term
 import System.Exit
@@ -136,13 +138,17 @@ setupLogging verbosity = do
 
   setLogLevel $ toEnum level
 
-startDebugServer :: PortNumber -> Features -> IO ()
+startDebugServer :: Word16 -> Features -> IO ()
 startDebugServer port features = do
-  let host = "127.0.0.1"
-  let config = Config quietLogger host port
   void $ forkIO $ do
-    logFmt Info "Debug server running at {}:{}" (host, tshow port)
-    serverWith config $ \_ _ _ -> serveStatistics features
+    logAt Info $ "Debug server running on port " <> tshow port
+    W.run (fromIntegral port) $ \req respond -> case W.pathInfo req of
+      ["stats"] -> do
+        logAt Trace "Got a request to /stats debug HTTP handler"
+        statsHTML <- LBS.fromStrict <$> serveStatistics features
+        respond $ W.responseLBS status200 [ ("Content-Type", "text/html") ]
+                                statsHTML
+      _ -> respond $ W.responseLBS status404 [] ""
 
 
 resolveFeatures :: Features -> [Options -> IO ()]
