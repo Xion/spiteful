@@ -6,7 +6,9 @@ module Spiteful.Metrics where
 import Control.Concurrent.STM
 import Control.Monad.IO.Class
 import Data.ByteString (ByteString)
+import Data.Hashable
 import qualified Data.HashSet as HS
+import Data.Function (on)
 import Data.Monoid ((<>))
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -21,46 +23,76 @@ import Spiteful.Features
 import Spiteful.Util (tshow)
 
 
-postsSeen :: TVar Int
-postsSeen = unsafePerformIO $ newTVarIO 0
+type Label = Text
+
+data Metric a = Metric { metLabel :: !Label
+                       , metValue :: !(TVar a)
+                       }
+
+instance Show (Metric a) where
+  show Metric{..} = "Metric <" ++ Text.unpack metLabel ++ ">"
+
+instance Eq (Metric a) where
+  (==) = (==) `on` metLabel
+
+instance Hashable (Metric a) where
+  hash = hash . metLabel
+  hashWithSalt s = hashWithSalt s . metLabel
+
+mkMetric :: Text -> a -> Metric a
+mkMetric label value = Metric label $ unsafePerformIO $ newTVarIO value
+
+mkCounter :: Text -> Metric Int
+mkCounter label = mkMetric label 0
+
+readMetric :: Metric a -> STM a
+readMetric = readTVar . metValue
+
+readMetricIO :: Metric a -> IO a
+readMetricIO = readTVarIO . metValue
+
+
+postsSeen :: Metric Int
+postsSeen = mkCounter "Total posts seen"
 {-# NOINLINE postsSeen #-}
 
-postsUpvoted :: TVar Int
-postsUpvoted = unsafePerformIO $ newTVarIO 0
+postsUpvoted :: Metric Int
+postsUpvoted = mkCounter "Posts upvoted"
 {-# NOINLINE postsUpvoted #-}
 
-postsDownvoted :: TVar Int
-postsDownvoted = unsafePerformIO $ newTVarIO 0
+postsDownvoted :: Metric Int
+postsDownvoted = mkCounter "Posts downvoted"
 {-# NOINLINE postsDownvoted #-}
 
-commentsSeen :: TVar Int
-commentsSeen = unsafePerformIO $ newTVarIO 0
+commentsSeen :: Metric Int
+commentsSeen = mkCounter "Total comments seen"
 {-# NOINLINE commentsSeen #-}
 
-commentsRepliedTo :: TVar Int
-commentsRepliedTo = unsafePerformIO $ newTVarIO 0
+commentsRepliedTo :: Metric Int
+commentsRepliedTo = mkCounter "Comments replied to"
 {-# NOINLINE commentsRepliedTo #-}
 
-dontUpvotePostsSeen :: TVar Int
-dontUpvotePostsSeen = unsafePerformIO $ newTVarIO 0
+dontUpvotePostsSeen :: Metric Int
+dontUpvotePostsSeen = mkCounter "'dont upvote' posts seen"
 {-# NOINLINE dontUpvotePostsSeen #-}
 
-ifThisGetsUpvotesPostsSeen :: TVar Int
-ifThisGetsUpvotesPostsSeen = unsafePerformIO $ newTVarIO 0
+ifThisGetsUpvotesPostsSeen :: Metric Int
+ifThisGetsUpvotesPostsSeen = mkCounter "'if this gets upvotes' posts seen"
 {-# NOINLINE ifThisGetsUpvotesPostsSeen #-}
 
-daeCommentsSeen :: TVar Int
-daeCommentsSeen = unsafePerformIO $ newTVarIO 0
+daeCommentsSeen :: Metric Int
+daeCommentsSeen = mkCounter "DAE comments seen"
 {-# NOINLINE daeCommentsSeen #-}
 
-upvoteIfPostsSeen :: TVar Int
-upvoteIfPostsSeen = unsafePerformIO $ newTVarIO 0
+upvoteIfPostsSeen :: Metric Int
+upvoteIfPostsSeen = mkCounter "'upvote if' posts seen"
 {-# NOINLINE upvoteIfPostsSeen #-}
 
 
 -- | Pipe that counts all passing elements and stores the total in given TVar.
-countAs :: (MonadIO m, Num n) => TVar n -> Pipe a a m r
-countAs tvar = P.chain $ \_ -> liftIO $ atomically $ modifyTVar' tvar (+1)
+countAs :: (MonadIO m, Num n) => Metric n -> Pipe a a m r
+countAs Metric{..} =
+  P.chain $ \_ -> liftIO $ atomically $ modifyTVar' metValue (+1)
 
 
 -- | Print statistics to stdout.
@@ -68,7 +100,7 @@ printStatistics :: Features -> IO ()
 printStatistics features =
   mapM_ Text.putStrLn =<< formatStatistics joinKV sep features
   where
-  joinKV (k, v) = k <> ": " <> v
+  joinKV (k, v) = k <> ": " <> tshow v
   sep = Text.replicate 20 "-"
 
 -- | Serve statistics as an HTTP response.
@@ -78,12 +110,12 @@ serveStatistics features = do
   let body = preamble <> stats <> postamble
   return $ (respond @ByteString OK) { rspBody = Text.encodeUtf8 body }
   where
-  joinKV (k, v) = "<li><strong>" <> k <> ":</strong> " <> v <> "</li>"
+  joinKV (k, v) = "<li><strong>" <> k <> ":</strong> " <> tshow v <> "</li>"
   sep = "</ul><ul>"
   preamble = "<html><body><ul>"
   postamble = "</ul></body></html>"
 
-formatStatistics :: ((Text, Text) -> Text) -> Text -> Features -> IO [Text]
+formatStatistics :: ((Label, Int) -> Text) -> Text -> Features -> IO [Text]
 formatStatistics formatKV sep features = do
   let fs = HS.toList features
   if null fs then return []
@@ -93,38 +125,13 @@ formatStatistics formatKV sep features = do
     return $ lines <> [sep]
 
 -- TODO: don't repeat statistics that are used by multiple features
-getStatistics :: Feature -> STM [(Text, Text)]
-getStatistics = \case
-  FeatureDontUpvote -> do
-    postsSeen' <- readTVar postsSeen
-    dontUpvotePostsSeen' <- readTVar dontUpvotePostsSeen
-    postsUpvoted' <- readTVar postsUpvoted
-    return [ ("Total posts seen", tshow postsSeen')
-           , ("'dont upvote' posts seen", tshow dontUpvotePostsSeen')
-           , ("Posts upvoted", tshow postsUpvoted')
-           ]
-  FeatureUpvoteIf -> do
-    postsSeen' <- readTVar postsSeen
-    upvoteIfPostsSeen' <- readTVar upvoteIfPostsSeen
-    postsDownvoted' <- readTVar postsDownvoted
-    return [ ("Total posts seen", tshow postsSeen')
-           , ("'upvote if' posts seen", tshow upvoteIfPostsSeen')
-           , ("Posts downvoted", tshow postsDownvoted')
-           ]
-  FeatureIfThisGetsUpvotes -> do
-    postsSeen' <- readTVar postsSeen
-    ifThisGetsUpvotesPostsSeen' <- readTVar ifThisGetsUpvotesPostsSeen
-    postsDownvoted' <- readTVar postsDownvoted
-    return [ ("Total posts seen", tshow postsSeen')
-           , ("'if this gets upvotes' posts seen"
-             , tshow ifThisGetsUpvotesPostsSeen')
-           , ("Posts downvoted", tshow postsDownvoted')
-           ]
-  FeatureDAE -> do
-    commentsSeen' <- readTVar commentsSeen
-    daeCommentsSeen' <- readTVar daeCommentsSeen
-    commentsRepliedTo' <- readTVar commentsRepliedTo
-    return [ ("Total comments seen", tshow commentsSeen')
-           , ("DAE comments seen", tshow daeCommentsSeen')
-           , ("Comments replied to", tshow commentsRepliedTo')
-           ]
+getStatistics :: Feature -> STM [(Label, Int)]
+getStatistics f = readMetrics $ case f of
+  FeatureDontUpvote -> [postsSeen, dontUpvotePostsSeen, postsUpvoted]
+  FeatureUpvoteIf -> [postsSeen, upvoteIfPostsSeen, postsDownvoted]
+  FeatureIfThisGetsUpvotes ->
+    [postsSeen, ifThisGetsUpvotesPostsSeen, postsDownvoted]
+  FeatureDAE -> [commentsSeen, daeCommentsSeen, commentsRepliedTo]
+  where
+  readMetrics :: [Metric a] -> STM [(Label, a)]
+  readMetrics = mapM $ \m@Metric{..} -> (metLabel,) <$> readMetric m
