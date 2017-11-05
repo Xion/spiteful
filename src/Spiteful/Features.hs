@@ -14,6 +14,7 @@ import qualified Data.HashSet as HS
 import Data.Monoid ((<>))
 import Data.Text (Text)
 import GHC.Generics (Generic)
+import Safe (headMay)
 
 
 -- | Bot feature that can be turned on or off.
@@ -21,7 +22,7 @@ data Feature = FeatureDontUpvote
              | FeatureUpvoteIf
              | FeatureIfThisGetsUpvotes
              | FeatureDAE
-             deriving (Bounded, Enum, Eq, Generic, Ord, Read)
+             deriving (Bounded, Enum, Eq, Generic, Ord)
 
 instance Hashable Feature
 
@@ -30,6 +31,13 @@ instance Show Feature where
   show FeatureUpvoteIf = "upvote-if"
   show FeatureIfThisGetsUpvotes = "if-this-gets-upvotes"
   show FeatureDAE = "dae"
+
+instance Read Feature where
+  readsPrec _ inp =
+    let allFeatures = [minBound..maxBound] :: [Feature]
+    in case headMay $ filter ((== inp) . show) $ allFeatures of
+      Just f -> [(f, "")]
+      Nothing -> []
 
 -- | User-friendly explanation of what a particular feature does.
 describe :: Feature -> Text
