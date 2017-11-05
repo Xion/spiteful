@@ -1,5 +1,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TypeApplications #-}
+{-# OPTIONS_GHC -fno-cse #-}
+{-# OPTIONS_GHC -fno-full-laziness #-}
 
 module Spiteful.Metrics where
 
@@ -40,9 +42,11 @@ instance Hashable (Metric a) where
 
 mkMetric :: Text -> a -> Metric a
 mkMetric label value = Metric label $ unsafePerformIO $ newTVarIO value
+{-# NOINLINE mkMetric #-}
 
 mkCounter :: Text -> Metric Int
 mkCounter label = mkMetric label 0
+{-# NOINLINE mkCounter #-}
 
 readMetric :: Metric a -> STM a
 readMetric = readTVar . metValue
