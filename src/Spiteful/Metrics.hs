@@ -5,12 +5,17 @@
 
 module Spiteful.Metrics where
 
+import Control.Arrow ((&&&))
 import Control.Concurrent.STM
 import Control.Monad.IO.Class
 import Data.ByteString (ByteString)
+import Data.Foldable
 import Data.Hashable
+import Data.HashMap.Strict ((!), HashMap)
+import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.Function (on)
+import Data.List (sortOn)
 import Data.Monoid ((<>))
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -123,10 +128,32 @@ formatStatistics formatKV sep features = do
   let fs = HS.toList features
   if null fs then return []
   else do
-    lines <- (concat . ([sep]:) . map (map formatKV)) <$> mapM getStatistics fs
+    stats <- sortOn fst . HM.toList <$> getAllStatistics fs
+    let lines = concatMap ((sep:) . map formatKV) . map snd $ stats
     return $ lines <> [sep]
 
--- TODO: don't repeat statistics that are used by multiple features
+getAllStatistics :: Foldable t
+                 => t Feature -> IO (HashMap (Maybe Feature) [(Label, Int)])
+getAllStatistics features = do
+  let fs = toList features
+  -- Get all metrics (grouped by feature) and their current values.
+  -- TODO: the metric values before HM.fromList may actually differ
+  -- because the way `stats` is read may lead to an inconsistency; fix this
+  groupedStats <- mapM getStatistics fs
+  let metricValues :: HashMap Label Int
+      metricValues = HM.fromList $ concat groupedStats
+  -- See how many features use each metric and divide them into unique & shared.
+  let metricCounts = HM.fromListWith (+)
+                     [ (m, 1) | m <- map fst . concat $ groupedStats ]
+      sharedMetrics = HS.fromList . HM.keys $ HM.filter (> 1) metricCounts
+      isUnique = not . (`HS.member` sharedMetrics)
+  -- Reattach the metric values and form the final result.
+  let sharedMV = HM.singleton Nothing $
+                 map (id &&& (metricValues !)) $ HS.toList sharedMetrics
+      uniqueMV = HM.fromList $ zip (map Just fs)
+                                   (map (filter $ isUnique . fst) groupedStats)
+  return $ HM.filter (not . null) $ sharedMV <> uniqueMV
+
 getStatistics :: Feature -> IO [(Label, Int)]
 getStatistics f = readMetrics $ case f of
   FeatureDontUpvote -> [postsSeen, dontUpvotePostsSeen, postsUpvoted]
@@ -136,4 +163,5 @@ getStatistics f = readMetrics $ case f of
   FeatureDAE -> [commentsSeen, daeCommentsSeen, commentsRepliedTo]
   where
   readMetrics :: [Metric a] -> IO [(Label, a)]
-  readMetrics = mapM $ \m@Metric{..} -> (metLabel,) <$> readMetricIO m
+  readMetrics = let read' m@Metric{..} = (metLabel,) <$> readMetric m
+                in atomically . mapM read'
