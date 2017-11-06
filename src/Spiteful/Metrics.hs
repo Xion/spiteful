@@ -137,11 +137,9 @@ getAllStatistics :: Foldable t
 getAllStatistics features = do
   let fs = toList features
   -- Get all metrics (grouped by feature) and their current values.
-  -- TODO: the metric values before HM.fromList may actually differ
-  -- because the way `stats` is read may lead to an inconsistency; fix this
-  groupedStats <- mapM getStatistics fs
-  let metricValues :: HashMap Label Int
-      metricValues = HM.fromList $ concat groupedStats
+  groupedStats <- atomically $ mapM (mapM readMetric') $ map getMetrics fs
+  let metrics :: HashMap Label Int
+      metrics = HM.fromList $ concat groupedStats
   -- See how many features use each metric and divide them into unique & shared.
   let metricCounts = HM.fromListWith (+)
                      [ (m, 1) | m <- map fst . concat $ groupedStats ]
@@ -149,19 +147,18 @@ getAllStatistics features = do
       isUnique = not . (`HS.member` sharedMetrics)
   -- Reattach the metric values and form the final result.
   let sharedMV = HM.singleton Nothing $
-                 map (id &&& (metricValues !)) $ HS.toList sharedMetrics
+                 map (id &&& (metrics !)) $ HS.toList sharedMetrics
       uniqueMV = HM.fromList $ zip (map Just fs)
                                    (map (filter $ isUnique . fst) groupedStats)
   return $ HM.filter (not . null) $ sharedMV <> uniqueMV
+  where
+  readMetric' :: Metric a -> STM (Label, a)
+  readMetric' m@Metric{..} = (metLabel,) <$> readMetric m
 
-getStatistics :: Feature -> IO [(Label, Int)]
-getStatistics f = readMetrics $ case f of
+getMetrics :: Feature -> [Metric Int]
+getMetrics = \case
   FeatureDontUpvote -> [postsSeen, dontUpvotePostsSeen, postsUpvoted]
   FeatureUpvoteIf -> [postsSeen, upvoteIfPostsSeen, postsDownvoted]
   FeatureIfThisGetsUpvotes ->
     [postsSeen, ifThisGetsUpvotesPostsSeen, postsDownvoted]
   FeatureDAE -> [commentsSeen, daeCommentsSeen, commentsRepliedTo]
-  where
-  readMetrics :: [Metric a] -> IO [(Label, a)]
-  readMetrics = let read' m@Metric{..} = (metLabel,) <$> readMetric m
-                in atomically . mapM read'
