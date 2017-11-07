@@ -176,15 +176,18 @@ features :: Parser (Maybe Features)
 features = optional $ option features'
     ( long "features" <> short 'f' <> metavar "FEATURE[, FEATURE, [...]]"
     <> help (Text.unpack $ fmt (
-        "Comma-separated list of features to enable. "
+        "Either \"all\", or a comma-separated list of features to enable. "
         <> "Choices include: [{}]. Default: [{}]")
         (csv ([minBound..maxBound] :: [Feature]), csv defaultFeatures))
     )
   where
   features' :: ReadM Features
-  features' = maybeReader $ (HS.fromList <$>)
-    . sequence . map (readMay . Text.unpack . Text.strip)
-    . Text.splitOn "," . Text.toLower . Text.pack
+  features' = maybeReader $ \val ->
+    let v = Text.pack val
+    in HS.fromList <$> if Text.strip v == "all" then Just allFeatures
+                       else sequence . map (readMay . Text.unpack . Text.strip)
+                            . Text.splitOn "," . Text.toLower $ v
+  allFeatures = [minBound..maxBound] :: [Feature]
 
 listing :: Parser (Maybe ListingType)
 listing = optional $ option listing'

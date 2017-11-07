@@ -142,6 +142,7 @@ formatStatistics formatKV sep features = do
     let lines = concatMap ((sep:) . map formatKV) . map snd $ stats
     return $ lines <> [sep]
 
+-- TODO: custom type for the result, and impl ToJSON on it
 getAllStatistics :: Foldable t
                  => t Feature -> IO (HashMap (Maybe Feature) [(Label, Int)])
 getAllStatistics features = do
