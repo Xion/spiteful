@@ -5,10 +5,12 @@
 
 module Spiteful.Metrics where
 
-import Control.Arrow ((&&&))
+import Control.Arrow ((&&&), (***))
 import Control.Concurrent.STM
 import Control.Monad.IO.Class
+import qualified Data.Aeson as Ae
 import Data.ByteString (ByteString)
+import qualified Data.ByteString.Lazy as LBS
 import Data.Foldable
 import Data.Hashable
 import Data.HashMap.Strict ((!), HashMap)
@@ -111,9 +113,17 @@ printStatistics features =
   joinKV (k, v) = k <> ": " <> tshow v
   sep = Text.replicate 20 "-"
 
--- | Serve statistics as an HTTP response body.
-serveStatistics :: Features -> IO ByteString
-serveStatistics features = do
+-- | Render statistics as a JSON document.
+renderJSONStatistics :: Features -> IO ByteString
+renderJSONStatistics features = do
+  stats <- sortOn fst . HM.toList <$> getAllStatistics features
+  let stats' :: HashMap Text (HashMap Label Int)
+      stats' = HM.fromList $ map (maybe "" tshow *** HM.fromList) stats
+  return $ LBS.toStrict (Ae.encode stats')
+
+-- | Render statistics as an HTML document.
+renderHTMLStatistics :: Features -> IO ByteString
+renderHTMLStatistics features = do
   stats <- Text.unlines <$> formatStatistics joinKV sep features
   let body = preamble <> stats <> postamble
   return $ Text.encodeUtf8 body

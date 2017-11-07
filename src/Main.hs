@@ -8,6 +8,7 @@ import Control.Concurrent.Async
 import Control.Exception (throwTo)
 import Control.Monad
 import Control.Monad.Extra (whenJust)
+import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.HashSet as HS
 import Data.Maybe (fromMaybe)
@@ -18,9 +19,11 @@ import qualified Data.Text.IO as Text
 import Data.Word (Word16)
 import qualified Network.HTTP.Client.TLS as TLS
 import Network.HTTP.Types (status200, status404)
+import Network.HTTP.Types.Header
 import qualified Network.Wai as W
 import qualified Network.Wai.Handler.Warp as W
 import Options.Applicative
+import Safe (headMay)
 import qualified System.Console.Terminal.Size as Term
 import System.Exit
 import System.IO
@@ -142,13 +145,34 @@ startDebugServer :: Word16 -> Features -> IO ()
 startDebugServer port features = do
   void $ forkIO $ do
     logAt Info $ "Debug server running on port " <> tshow port
-    W.run (fromIntegral port) $ \req respond -> case W.pathInfo req of
-      ["stats"] -> do
-        logAt Trace "Got a request to /stats debug HTTP handler"
-        statsHTML <- LBS.fromStrict <$> serveStatistics features
-        respond $ W.responseLBS status200 [ ("Content-Type", "text/html") ]
-                                statsHTML
-      _ -> respond $ W.responseLBS status404 [] ""
+    W.run (fromIntegral port) $ \req respond -> do
+      let path = W.pathInfo req
+      logAt Trace $ "Got a request to /" <> Text.intercalate "/" path
+                    <> " debug HTTP handler"
+      case path of
+        ["stats"] -> do
+          let accept = fromMaybe mimeJSON $ reqHeader hAccept req
+          resp <- case accept of
+            a | a == mimeJSON -> statsJSONResponse
+            _ -> statsHTMLResponse
+          respond resp
+        ["stats.json"] -> respond =<< statsJSONResponse
+        ["stats.html"] -> respond =<< statsHTMLResponse
+        _ -> respond $ W.responseLBS status404 [] ""
+  where
+  mimeJSON = "application/json"
+  mimeHTML = "text/html"
+
+  statsJSONResponse = do
+    statsJSON <- LBS.fromStrict <$> renderJSONStatistics features
+    return $ W.responseLBS status200 [ ("Content-Type", mimeJSON) ] statsJSON
+  statsHTMLResponse = do
+    statsHTML <- LBS.fromStrict <$> renderHTMLStatistics features
+    return $ W.responseLBS status200 [ ("Content-Type", mimeHTML) ] statsHTML
+
+  reqHeader :: HeaderName -> W.Request -> Maybe ByteString
+  reqHeader h req =
+    (snd <$>) . headMay $ filter ((== h) . fst) (W.requestHeaders req)
 
 
 resolveFeatures :: Features -> [Options -> IO ()]
