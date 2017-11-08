@@ -36,3 +36,5 @@ On OS X:
       --extra-lib-dirs=/usr/local/opt/icu4c/lib
 
 On most Linux distros, it should Just Work (tm).
+Otherwise, try installing `libicu-dev` or a similar package,
+and optionally fiddling with the `stack build` flags like above.
