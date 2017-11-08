@@ -10,6 +10,8 @@ import Control.Monad
 import Control.Monad.Extra (whenJust)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as LBS
+import Data.HashMap.Strict ((!), HashMap)
+import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.Maybe (fromMaybe)
 import Data.Monoid ((<>))
@@ -129,7 +131,7 @@ setupLogging verbosity = do
       maxLevel = fromEnum (maxBound :: LogLevel)
       defaultLevel = fromEnum defaultLogLevel
 
-  when (not $ level >= minLevel && level <= maxLevel) $ do
+  unless (level >= minLevel && level <= maxLevel) $ do
     let flag :: Text
         maxFlagCount :: Int
         (flag, maxFlagCount) = if verbosity > 0
@@ -149,36 +151,31 @@ startDebugServer port features = do
       let path = W.pathInfo req
       logAt Trace $ "Got a request to /" <> Text.intercalate "/" path
                     <> " debug HTTP handler"
-      case path of
-        ["stats"] -> do
-          let accept = fromMaybe mimeJSON $ reqHeader hAccept req
-          resp <- case accept of
-            a | a == mimePlain -> statsPlainResponse
-            a | a == mimeJSON -> statsJSONResponse
-            _ -> statsHTMLResponse
-          respond resp
-        ["stats.txt"] -> respond =<< statsPlainResponse
-        ["stats.json"] -> respond =<< statsJSONResponse
-        ["stats.html"] -> respond =<< statsHTMLResponse
-        _ -> respond $ W.responseLBS status404 [] ""
+      respond =<< case path of
+        ["stats"] -> statsResponse $ fromMaybe mimeHTML $ reqHeader hAccept req
+        ["stats.txt"] -> statsResponse mimePlain
+        ["stats.json"] -> statsResponse mimeJSON
+        ["stats.html"] -> statsResponse mimeHTML
+        _ -> return $ W.responseLBS status404 [] ""
   where
+  -- TODO: ADT enum maybe?
+  mimePlain = "text/plain"
   mimeJSON = "application/json"
   mimeHTML = "text/html"
-  mimePlain = "text/plain"
 
-  statsPlainResponse = do
-    statsPlain <- LBS.fromStrict <$> renderPlainStatistics features
-    return $ W.responseLBS status200 [ ("Content-Type", mimePlain) ] statsPlain
-  statsJSONResponse = do
-    statsJSON <- LBS.fromStrict <$> renderJSONStatistics features
-    return $ W.responseLBS status200 [ ("Content-Type", mimeJSON) ] statsJSON
-  statsHTMLResponse = do
-    statsHTML <- LBS.fromStrict <$> renderHTMLStatistics features
-    return $ W.responseLBS status200 [ ("Content-Type", mimeHTML) ] statsHTML
+  statsHandlers :: HashMap ByteString (Features -> IO ByteString)
+  statsHandlers = HM.fromList [ (mimePlain, renderPlainStatistics)
+                              , (mimeJSON, renderJSONStatistics)
+                              , (mimeHTML, renderHTMLStatistics)
+                              ]
+
+  statsResponse mimeType = do
+    let render = statsHandlers ! mimeType
+    stats <- LBS.fromStrict <$> render features
+    return $ W.responseLBS status200 [ ("Content-Type", mimeType) ] stats
 
   reqHeader :: HeaderName -> W.Request -> Maybe ByteString
-  reqHeader h req =
-    (snd <$>) . headMay $ filter ((== h) . fst) (W.requestHeaders req)
+  reqHeader h = (snd <$>) . headMay . filter ((== h) . fst) . W.requestHeaders
 
 
 resolveFeatures :: Features -> [Options -> IO ()]
