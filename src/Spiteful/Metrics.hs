@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -fno-cse #-}
@@ -9,6 +10,7 @@ import Control.Arrow ((&&&), (***))
 import Control.Concurrent.STM
 import Control.Monad ((>=>))
 import Control.Monad.IO.Class
+import Data.Aeson (ToJSON)
 import qualified Data.Aeson as Ae
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as LBS
@@ -24,6 +26,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
 import qualified Data.Text.IO as Text
+import GHC.Generics (Generic)
 import Pipes
 import qualified Pipes.Prelude as P
 import System.IO.Unsafe (unsafePerformIO)
@@ -113,43 +116,66 @@ printStatistics = renderPlainStatistics >=> Text.putStr . Text.decodeUtf8
 -- | Render statistics as plain text.
 renderPlainStatistics :: Features -> IO ByteString
 renderPlainStatistics features =
-  Text.encodeUtf8 . Text.unlines <$> formatStatistics joinKV sep features
-  where
-  joinKV (k, v) = k <> ": " <> tshow v
-  sep = Text.replicate 20 "-"
+  Text.encodeUtf8 . tshow <$> getAllStatistics features
 
 -- | Render statistics as a JSON document.
 renderJSONStatistics :: Features -> IO ByteString
-renderJSONStatistics features = do
-  stats <- sortOn fst . HM.toList <$> getAllStatistics features
-  let stats' :: HashMap Text (HashMap Label Int)
-      stats' = HM.fromList $ map (maybe "" tshow *** HM.fromList) stats
-  return $ LBS.toStrict (Ae.encode stats')
+renderJSONStatistics features =
+  LBS.toStrict . Ae.encode <$> getAllStatistics features
 
 -- | Render statistics as an HTML document.
 renderHTMLStatistics :: Features -> IO ByteString
 renderHTMLStatistics features = do
-  stats <- Text.unlines <$> formatStatistics joinKV sep features
+  stats <- Text.unlines <$> formatStatistics
   let body = preamble <> stats <> postamble
   return $ Text.encodeUtf8 body
   where
+  formatStatistics = do
+    let fs = HS.toList features
+    if null fs then return []
+    else do
+      stats <- sortOn fst . HM.toList . unStats <$> getAllStatistics fs
+      let lines = concatMap ((sep:) . map joinKV) . map snd $ stats
+      return $ lines <> [sep]
+
   joinKV (k, v) = "<li><strong>" <> k <> ":</strong> " <> tshow v <> "</li>"
   sep = "</ul><ul>"
   preamble = "<html><body><ul>"
   postamble = "</ul></body></html>"
 
-formatStatistics :: ((Label, Int) -> Text) -> Text -> Features -> IO [Text]
-formatStatistics formatKV sep features = do
-  let fs = HS.toList features
-  if null fs then return []
-  else do
-    stats <- sortOn fst . HM.toList <$> getAllStatistics fs
-    let lines = concatMap ((sep:) . map formatKV) . map snd $ stats
-    return $ lines <> [sep]
 
--- TODO: custom type for the result, and impl ToJSON on it
-getAllStatistics :: Foldable t
-                 => t Feature -> IO (HashMap (Maybe Feature) [(Label, Int)])
+data StatGroup = CommonStats | FeatureStats Feature
+                 deriving (Eq, Generic)
+
+instance Hashable StatGroup
+
+instance Ord StatGroup where
+  compare CommonStats (FeatureStats _) = LT
+  compare (FeatureStats _) CommonStats = GT
+  compare (FeatureStats f1) (FeatureStats f2) = compare f1 f2
+  compare _ _ = EQ
+
+instance Show StatGroup where
+  show CommonStats = "(common)"
+  show (FeatureStats f) = "Feature " ++ show f
+
+data Stats a = Stats { unStats :: HashMap StatGroup [(Label, a)]  }
+
+instance Show a => Show (Stats a) where
+  show (Stats s) =
+    let sep = Text.replicate 20 "-"
+        formatKV (k, v) = k <> ": " <> tshow v
+        lines = concatMap ((sep:) . map formatKV) . map snd . sortOn fst
+                . HM.toList $ s
+    in Text.unpack . Text.unlines $ lines <> [sep]
+
+instance ToJSON a => ToJSON (Stats a) where
+  toJSON =
+    Ae.toJSON . HM.fromList . map (tshow *** HM.fromList) . sortOn fst
+    . HM.toList . unStats
+
+
+getAllStatistics :: Foldable t => t Feature -> IO (Stats Int)
 getAllStatistics features = do
   let fs = toList features
   -- Get all metrics (grouped by feature) and their current values.
@@ -162,11 +188,11 @@ getAllStatistics features = do
       sharedMetrics = HS.fromList . HM.keys $ HM.filter (> 1) metricCounts
       isUnique = not . (`HS.member` sharedMetrics)
   -- Reattach the metric values and form the final result.
-  let sharedMV = HM.singleton Nothing $
+  let sharedMV = HM.singleton CommonStats $
                  map (id &&& (metrics !)) $ HS.toList sharedMetrics
-      uniqueMV = HM.fromList $ zip (map Just fs)
+      uniqueMV = HM.fromList $ zip (map FeatureStats fs)
                                    (map (filter $ isUnique . fst) groupedStats)
-  return $ HM.filter (not . null) $ sharedMV <> uniqueMV
+  return . Stats $ HM.filter (not . null) $ sharedMV <> uniqueMV
   where
   readMetric' :: Metric a -> STM (Label, a)
   readMetric' m@Metric{..} = (metLabel,) <$> readMetric m
