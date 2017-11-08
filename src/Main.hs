@@ -89,7 +89,7 @@ run opts = do
 
   tid <- myThreadId
   installHandler sigINT $ \_ -> do
-    printStatistics features
+    Text.putStrLn "" >> printStatistics features
     throwTo tid ExitSuccess
 
   logAt Info $ "spiteful-bot v" <> botVersion
@@ -153,16 +153,22 @@ startDebugServer port features = do
         ["stats"] -> do
           let accept = fromMaybe mimeJSON $ reqHeader hAccept req
           resp <- case accept of
+            a | a == mimePlain -> statsPlainResponse
             a | a == mimeJSON -> statsJSONResponse
             _ -> statsHTMLResponse
           respond resp
+        ["stats.txt"] -> respond =<< statsPlainResponse
         ["stats.json"] -> respond =<< statsJSONResponse
         ["stats.html"] -> respond =<< statsHTMLResponse
         _ -> respond $ W.responseLBS status404 [] ""
   where
   mimeJSON = "application/json"
   mimeHTML = "text/html"
+  mimePlain = "text/plain"
 
+  statsPlainResponse = do
+    statsPlain <- LBS.fromStrict <$> renderPlainStatistics features
+    return $ W.responseLBS status200 [ ("Content-Type", mimePlain) ] statsPlain
   statsJSONResponse = do
     statsJSON <- LBS.fromStrict <$> renderJSONStatistics features
     return $ W.responseLBS status200 [ ("Content-Type", mimeJSON) ] statsJSON

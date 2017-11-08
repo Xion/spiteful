@@ -7,6 +7,7 @@ module Spiteful.Metrics where
 
 import Control.Arrow ((&&&), (***))
 import Control.Concurrent.STM
+import Control.Monad ((>=>))
 import Control.Monad.IO.Class
 import qualified Data.Aeson as Ae
 import Data.ByteString (ByteString)
@@ -107,8 +108,12 @@ countAs Metric{..} =
 
 -- | Print statistics to stdout.
 printStatistics :: Features -> IO ()
-printStatistics features =
-  mapM_ Text.putStrLn =<< formatStatistics joinKV sep features
+printStatistics = renderPlainStatistics >=> Text.putStr . Text.decodeUtf8
+
+-- | Render statistics as plain text.
+renderPlainStatistics :: Features -> IO ByteString
+renderPlainStatistics features =
+  Text.encodeUtf8 . Text.unlines <$> formatStatistics joinKV sep features
   where
   joinKV (k, v) = k <> ": " <> tshow v
   sep = Text.replicate 20 "-"
