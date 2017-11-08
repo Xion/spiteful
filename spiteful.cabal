@@ -27,9 +27,9 @@ executable spiteful
                        , Spiteful.Reddit
                        , Spiteful.Util
   default-language:    Haskell2010
-  default-extensions: OverloadedStrings
-                      , RecordWildCards
-                      , TupleSections
+  default-extensions:  OverloadedStrings
+                       , RecordWildCards
+                       , TupleSections
   build-depends:       aeson >= 0.11
                        , async >= 2.1.1
                        , base >= 4.7 && < 5
@@ -46,7 +46,7 @@ executable spiteful
                        , pipes
                        , random >= 1.1
                        , reddit >= 0.2
-                       , regex-compat >= 0.95
+                       , regex-compat-tdfa >= 0.95
                        , signal >= 0.1
                        , safe >= 0.3
                        , split >= 0.2
